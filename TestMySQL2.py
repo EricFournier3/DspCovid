@@ -17,11 +17,19 @@ pd_bd_phylo['Date_prelev_1'] = pd.to_datetime(pd_bd_phylo['Date_prelev_1'],forma
 pd_bd_phylo['Date_conf_LSPQ_1'] = pd.to_datetime(pd_bd_phylo['Date_conf_LSPQ_1'],format='%Y%m%d').dt.strftime('%Y-%m-%d')
 pd_bd_phylo['dtNaissInfo'] = pd.to_datetime(pd_bd_phylo['dtNaissInfo'],format='%Y-%m-%d %H:%M:%S').dt.strftime('%Y-%m-%d')
 pd_bd_phylo['Date_conf_LSPQ_2'] = pd.to_datetime(pd_bd_phylo['Date_conf_LSPQ_2'],format='%Y-%m-%d %H:%M:%S').dt.strftime('%Y-%m-%d')
+pd_bd_phylo['nomInfo'] = pd_bd_phylo['nomInfo'].str.upper()
+pd_bd_phylo['prenomInfo'] = pd_bd_phylo['prenomInfo'].str.upper()
+
+
 
 pd_envois_genome_quebec = pd.read_excel(os.path.join(base_dir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx'),sheet_name='Feuil1')
 pd_envois_genome_quebec['Date de naissance'] = pd.to_datetime(pd_envois_genome_quebec['Date de naissance'],format='%Y-%m-%d').dt.strftime('%Y-%m-%d')
 pd_envois_genome_quebec['Date de prélèvement'] = pd.to_datetime(pd_envois_genome_quebec['Date de prélèvement'],format='%Y-%m-%d').dt.strftime('%Y-%m-%d')
 pd_envois_genome_quebec['DateEnvoiGenomeQuebec'] = pd.to_datetime(pd_envois_genome_quebec['DateEnvoiGenomeQuebec'],format='%Y-%m-%d').dt.strftime('%Y-%m-%d')
+
+pd_envois_genome_quebec['Nom'] = pd_envois_genome_quebec['Nom'].str.upper()
+pd_envois_genome_quebec['Prénom'] = pd_envois_genome_quebec['Prénom'].str.upper()
+
 
 pd_envois_genome_quebec['LSPQ_CH_CODE'] = pd_envois_genome_quebec['# Requête'].str.extract(r'(\S+-)\S+')
 
@@ -33,6 +41,7 @@ mydb = mysql.connector.connect(host="localhost",user="root",password="lspq2019",
 mycursor = mydb.cursor()
 
 def Match_CH_DSP2LSPQ(dsp_ch_code):
+    #TODO SI LES CODE DSP EST ABSENT DU FICHIER DE MAPPING
     lspq_ch_code = pd_prefix_ch_lspq2dsp.loc[pd_prefix_ch_lspq2dsp['PrefixDSP'] == dsp_ch_code,['PrefixLSPQ','ETABLISSEMENTS']].values[0][0]
     ch_name = pd_prefix_ch_lspq2dsp.loc[pd_prefix_ch_lspq2dsp['PrefixDSP'] == dsp_ch_code,['PrefixLSPQ','ETABLISSEMENTS']].values[0][1]
 
@@ -82,7 +91,8 @@ def TryInsertInDB(id_phylo,statut,rss_lspq_cas,date_prelev_1,date_conf_lspq_1,co
             print("Insert error {}".format(err))
     
 
-for index, row in pd_bd_phylo.loc[pd_bd_phylo['laboratoire'].isin(['CHUM','HMR2'])].iterrows():
+#for index, row in pd_bd_phylo.loc[pd_bd_phylo['laboratoire'].isin(['CHUM','HMR2'])].iterrows():
+for index, row in pd_bd_phylo.loc[:,].iterrows():
     '''
     print(row['laboratoire'])
     print(row['nomInfo'])
@@ -91,8 +101,10 @@ for index, row in pd_bd_phylo.loc[pd_bd_phylo['laboratoire'].isin(['CHUM','HMR2'
     print(row['Date_prelev_1'])
     print(row['NAM__LSPQ_'])
     '''
-    lspq_ch_code = Match_CH_DSP2LSPQ(row['laboratoire'])[0]
-    ch_name = Match_CH_DSP2LSPQ(row['laboratoire'])[1]
+
+    match = Match_CH_DSP2LSPQ(row['laboratoire'])
+    lspq_ch_code = match[0]
+    ch_name = match[1]
     #print("CH NAME ",ch_name)
     #print("LSPQ CH CODE ", lspq_ch_code)
     #print(pd_envois_genome_quebec['LSPQ_CH_CODE'])
