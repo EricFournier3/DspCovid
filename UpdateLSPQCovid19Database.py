@@ -75,7 +75,7 @@ class DSPdata:
     def GetPandaDataFrame(self):
         return self.pd_df
 
-class DSPtoLSPQmatcher:
+class CH_DSPtoLSPQ:
     def __init__(self,excel_manager):
         self.excel_manager = excel_manager
         self.renames_columns_dict = {'ETABLISSEMENTS':'NOM_HOPITAL','PrefixLSPQ':'CODE_HOPITAL_LSPQ',
@@ -85,6 +85,9 @@ class DSPtoLSPQmatcher:
 
     def SetPandaDataFrame(self):
         self.pd_df = self.excel_manager.ReadChDSP2LSPQ()
+
+    def GetPandaDataFrame(self):
+        return self.pd_df
 
 class EnvoisGenomeQuebec:
     def __init__(self,excel_manager):
@@ -97,6 +100,10 @@ class EnvoisGenomeQuebec:
         self.final_pd_df = pd.DataFrame(columns=self.pd_df.columns)
 
         self.RemoveWrongDateFormatRecord()
+        self.SortByDatePrelev()
+
+    def SortByDatePrelev(self):
+        self.final_pd_df = self.final_pd_df.sort_values(by=['DATE_PRELEV'],ascending=True)
 
     def SetPandaDataFrame(self):
         self.pd_df = self.excel_manager.ReadEnvoisGenomeQuebecFile()
@@ -138,10 +145,13 @@ class EnvoisGenomeQuebec:
         return self.final_pd_df
 
     def PrintColumns(self):
-        print("******************* DSPdata EnvoisGenomeQuebec ********************")
+        print("******************* EnvoisGenomeQuebec columns ********************")
         for col in self.final_pd_df.columns:
             print("* ",col)
         print("*******************************************************************")
+
+    def GetColumns(self):
+        return ','.join(self.final_pd_df.columns.values)
 
 class MySQLcovid19:
     def __init__(self):
@@ -159,15 +169,86 @@ class MySQLcovid19:
 
     def GetCursor(self):
         return self.GetConnection().cursor()
-        
+
 
 class MySQLcovid19Updator:
-    def __init__(self):
+    def __init__(self,dsp_dat,envois_gq,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19):
+        self.dsp_dat = dsp_dat
+        self.envois_gq = envois_gq
+        self.ch_dsp2lspq_matcher = ch_dsp2lspq_matcher
+        self.envois_genome_quebec_2_dsp_dat_matcher = envois_genome_quebec_2_dsp_dat_matcher
+        self.db = db_covid19
+
+        self.patients_columns_as_string = self.GetPatientsColumnsAsString()
+        
+    def GetChDspCode(self,lspq_ch_code):
+        return self.ch_dsp2lspq_matcher.GetChDspCode(lspq_ch_code)
+
+    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,ch_dsp_code): 
+        return self.envois_genome_quebec_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch_dsp_code)
+
+    def GetPatientsColumnsAsString(self):
+        columns_list = MySQLcovid19Selector.GetPatientsColumn(self.db.GetCursor())
+        patients_columns_as_string = ','.join(columns_list)
+        return patients_columns_as_string
+
+    def InsertPatient(self,val_to_insert):
+        exist = MySQLcovid19Selector.CheckIfPatientExist(self.db.GetCursor(),val_to_insert['id_patient'])
+        
+        if not exist:
+            try:
+                pass
+                ncols = self.patients_columns_as_string.count(",") + 1
+                sql_insert = "INSERT INTO Patients ({0}) values ({1})".format(self.patients_columns_as_string,str("%s,"*ncols)[:-1])
+                #print(sql_insert)
+
+            except mysql.connector.Error as err:
+                pass
+
+    def InsertPrelevement(self):
         pass
+
+    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name):
+        val = {"id_patient": dsp_dat_match_rec['ID_PATIENT'], "prenom": dsp_dat_match_rec['PRENOMINFO'],"nom":dsp_dat_match_rec['NOMINFO'],
+        "sex":dsp_dat_match_rec['SEXEINFO'],"dt_naiss":dsp_dat_match_rec['DTNAISSINFO'],"statut":dsp_dat_match_rec['STATUT'],"rss":dsp_dat_match_rec['RSS_LSPQ_CAS'],"code_ch_dsp":dsp_dat_match_rec['CODE_HOPITAL_DSP'],"code_ch_lspq":current_envoi['CODE_HOPITAL_LSPQ'],"ch_name":ch_name,"dt_prelev_1":dsp_dat_match_rec['DATE_PRELEV_1'],"dt_conf_lspq_1":dsp_dat_match_rec['DATE_CONF_LSPQ_1'],"dt_prelev_2":dsp_dat_match_rec['DATE_PRELEV_2'],"dt_conf_lspq_2":dsp_dat_match_rec['DATE_CONF_LSPQ_2'],"date_prelev_in_envois_genomequebec":current_envoi['DATE_PRELEV'],"genomequebec_request":current_envoi['GENOME_QUEBEC_REQUETE'],"dt_envoi_genomequebec":current_envoi['DATE_ENVOI_GENOME_QUEBEC'],"id_phylo":dsp_dat_match_rec['ID_PHYLO']} 
+
+        return(val)
+
+
+    def Insert(self):
+        for index,row in self.envois_gq.GetPandaDataFrame().loc[:,].iterrows():
+            ch_dsp2lspq_val = self.ch_dsp2lspq_matcher.GetChDspCode(row['CODE_HOPITAL_LSPQ']) 
+            ch_dsp2lspq_val = self.GetChDspCode(row['CODE_HOPITAL_LSPQ'])
+            ch_dsp_code = ch_dsp2lspq_val[0]
+            ch_name = ch_dsp2lspq_val[1]
+
+            dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code)
+
+            if dsp_dat_match_rec.shape[0] != 0:
+                val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name)
+                self.InsertPatient(val_to_insert)
 
 class MySQLcovid19Selector:
     def __init__(self):
         pass
+
+    @staticmethod
+    def CheckIfPatientExist(cursor,id_patient):
+        cursor.execute("select count(*) from Patients where ID_PATIENT = '{0}'".format(id_patient))
+        nb_match = cursor.fetchone()[0]
+        if nb_match == 0:
+            return False
+        else:
+            return True
+        
+    @staticmethod
+    def GetPatientsColumn(cursor):
+        cursor.execute("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Patients'")
+        res = cursor.fetchall()
+        columns = []
+        for x in res:
+            columns.append(x[0])
+        return columns
 
 class Utils:
     def __init__(self):
@@ -184,6 +265,61 @@ class Utils:
             ok = False
 
         return ok 
+
+    @staticmethod
+    def Inspect(dsp_data,envois_genome_quebec_data):
+        dsp_data.PrintColumns()
+        envois_genome_quebec_data.PrintColumns()
+
+
+class EnvoisGenomeQuebec_2_DSPdata_Matcher():
+    def __init__(self,dsp_dat):
+        self.dsp_dat = dsp_dat
+
+    def ComputeDatePrelevDiff(self,match_df,dt_prelev):
+        match_df['DATE_DIFF_1'] = match_df['DATE_PRELEV_1'] - dt_prelev
+        match_df['DATE_DIFF_1'] = match_df['DATE_DIFF_1'].abs()
+        match_df['DATE_DIFF_2'] = match_df['DATE_PRELEV_2'] - dt_prelev
+        match_df['DATE_DIFF_2'] = match_df['DATE_DIFF_2'].abs()
+
+        try:
+            match_df['MIN_DELTA'] = match_df[['DATE_DIFF_1','DATE_DIFF_2']].min(axis=1)
+        except:
+            pass
+        
+    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,dsp_ch_code):
+        
+        nom = nom.strip(' ')
+        prenom = prenom.strip(' ')
+        dsp_ch_code = dsp_ch_code.strip(' ')
+
+        try:
+            dsp_dat_df = self.dsp_dat.GetPandaDataFrame()
+            match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ')==nom) & (dsp_dat_df['PRENOMINFO'].str.strip(' ')==prenom) & 
+            (dsp_dat_df['DTNAISSINFO']==dt_naiss) & (dsp_dat_df['CODE_HOPITAL_DSP'].str.strip()==dsp_ch_code),:].copy()
+
+            if match_df.shape[0] == 0:
+                return match_df
+
+            self.ComputeDatePrelevDiff(match_df,dt_prelev)
+
+            return(match_df[match_df.MIN_DELTA == match_df.MIN_DELTA.min()])
+
+        except AttributeError as e:
+            print(e)
+            return pd.DataFrame(columns=dsp_dat_df.columns)
+
+
+class CH_DSP_2_LSPQ_Matcher():
+    def __init__(self,ch_dsp_2_lspq):
+        self.ch_dsp_2_lspq = ch_dsp_2_lspq
+
+    def GetChDspCode(self,lspq_ch_code):
+        df = self.ch_dsp_2_lspq.GetPandaDataFrame()
+        val = df.loc[df['PrefixLSPQ'] == lspq_ch_code,['PrefixDSP','ETABLISSEMENTS']].values[0]
+        dsp_ch_code = val[0]
+        ch_name = val[1]
+        return [dsp_ch_code,ch_name]
 
 class ExcelManager:
     def __init__(self,_debug):
@@ -223,21 +359,21 @@ class ExcelManager:
        
  
 def Main():
-    def Inspect():
-        pass
-        #print(dsp_data.GetPandaDataFrame())
-        #print(envois_genome_quebec_data.GetPandaDataFrame())
-        dsp_data.PrintColumns()
-        envois_genome_quebec_data.PrintColumns()
 
     logging.info("In Main()")
     excel_manager = ExcelManager(_debug_)
     db_covid19 = MySQLcovid19()
-    dsp_2_lspq_matcher =  DSPtoLSPQmatcher(excel_manager) 
+    ch_dsp_2_lspq =  CH_DSPtoLSPQ(excel_manager) 
     dsp_data = DSPdata(excel_manager)
     envois_genome_quebec_data = EnvoisGenomeQuebec(excel_manager)
-    Inspect()
+        
+    ch_dsp2lspq_matcher = CH_DSP_2_LSPQ_Matcher(ch_dsp_2_lspq)
+    envois_genome_quebec_2_dsp_dat_matcher = EnvoisGenomeQuebec_2_DSPdata_Matcher(dsp_data)
 
+    sql_updator = MySQLcovid19Updator(dsp_data,envois_genome_quebec_data,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19)
+    sql_updator.Insert()
+
+    #Utils.Inspect(dsp_data,envois_genome_quebec_data)
 
 if __name__ == '__main__':
     Main()
