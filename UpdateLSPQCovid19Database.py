@@ -170,6 +170,9 @@ class MySQLcovid19:
     def GetCursor(self):
         return self.GetConnection().cursor()
 
+    def Commit(self):
+        self.connection.commit()
+
 
 class MySQLcovid19Updator:
     def __init__(self,dsp_dat,envois_gq,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19):
@@ -178,14 +181,22 @@ class MySQLcovid19Updator:
         self.ch_dsp2lspq_matcher = ch_dsp2lspq_matcher
         self.envois_genome_quebec_2_dsp_dat_matcher = envois_genome_quebec_2_dsp_dat_matcher
         self.db = db_covid19
+        self.nb_patients_inserted = 0
+        self.nb_prelevements_inserted = 0
 
         self.patients_columns_as_string = self.GetPatientsColumnsAsString()
-        
+        self.prelevements_columns_as_string = self.GetPrelevementsColumnsAsString()
+
     def GetChDspCode(self,lspq_ch_code):
         return self.ch_dsp2lspq_matcher.GetChDspCode(lspq_ch_code)
 
     def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,ch_dsp_code): 
         return self.envois_genome_quebec_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch_dsp_code)
+
+    def GetPrelevementsColumnsAsString(self):
+        columns_list =  MySQLcovid19Selector.GetPrelevementsColumn(self.db.GetCursor())
+        prelevements_columns_as_string = ','.join(columns_list)
+        return prelevements_columns_as_string
 
     def GetPatientsColumnsAsString(self):
         columns_list = MySQLcovid19Selector.GetPatientsColumn(self.db.GetCursor())
@@ -193,27 +204,53 @@ class MySQLcovid19Updator:
         return patients_columns_as_string
 
     def InsertPatient(self,val_to_insert):
-        exist = MySQLcovid19Selector.CheckIfPatientExist(self.db.GetCursor(),val_to_insert['id_patient'])
+        exist = MySQLcovid19Selector.CheckIfPatientExist(self.db.GetCursor(),val_to_insert[0])
         
         if not exist:
             try:
-                pass
                 ncols = self.patients_columns_as_string.count(",") + 1
                 sql_insert = "INSERT INTO Patients ({0}) values ({1})".format(self.patients_columns_as_string,str("%s,"*ncols)[:-1])
-                #print(sql_insert)
-
+                self.db.GetCursor().execute(sql_insert,val_to_insert)
+                self.db.Commit()
+                self.nb_patients_inserted += 1
+                sys.stdout.write("Insert in Patients >> %d\r"%self.nb_patients_inserted)
+                sys.stdout.flush()
             except mysql.connector.Error as err:
-                pass
+                logging.error("Erreur d'insertion dans la table Patients avec le record " + str(val_to_insert) )
+                print(err)
 
-    def InsertPrelevement(self):
-        pass
+    def InsertPrelevement(self,val_to_insert):
+        exist = MySQLcovid19Selector.CheckIfPrelevementExist(self.db.GetCursor(),val_to_insert[0],val_to_insert[8])
 
-    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name):
-        val = {"id_patient": dsp_dat_match_rec['ID_PATIENT'], "prenom": dsp_dat_match_rec['PRENOMINFO'],"nom":dsp_dat_match_rec['NOMINFO'],
-        "sex":dsp_dat_match_rec['SEXEINFO'],"dt_naiss":dsp_dat_match_rec['DTNAISSINFO'],"statut":dsp_dat_match_rec['STATUT'],"rss":dsp_dat_match_rec['RSS_LSPQ_CAS'],"code_ch_dsp":dsp_dat_match_rec['CODE_HOPITAL_DSP'],"code_ch_lspq":current_envoi['CODE_HOPITAL_LSPQ'],"ch_name":ch_name,"dt_prelev_1":dsp_dat_match_rec['DATE_PRELEV_1'],"dt_conf_lspq_1":dsp_dat_match_rec['DATE_CONF_LSPQ_1'],"dt_prelev_2":dsp_dat_match_rec['DATE_PRELEV_2'],"dt_conf_lspq_2":dsp_dat_match_rec['DATE_CONF_LSPQ_2'],"date_prelev_in_envois_genomequebec":current_envoi['DATE_PRELEV'],"genomequebec_request":current_envoi['GENOME_QUEBEC_REQUETE'],"dt_envoi_genomequebec":current_envoi['DATE_ENVOI_GENOME_QUEBEC'],"id_phylo":dsp_dat_match_rec['ID_PHYLO']} 
+        if not exist:
+            try:
+                ncols = self.prelevements_columns_as_string.count(",") + 1
+                sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.prelevements_columns_as_string,str("%s,"*ncols)[:-1])
+                self.db.GetCursor().execute(sql_insert,val_to_insert)
+                self.db.Commit()
+                self.nb_prelevements_inserted += 1
+                sys.stdout.write("Insert in Prelevements >> %d\r"%self.nb_prelevements_inserted)
+                sys.stdout.flush()
+            except mysql.connector.Error as err:
+                logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(val_to_insert))
+                print(err)
 
-        return(val)
+    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name,table):
+        def GetVal(x):
+            if isinstance(x,pd.Timestamp):
+                return str(x)
+            elif isinstance(x,str):
+                return x
+            elif str(x.dtype) == 'datetime64[ns]':
+                return str(x.values[0])
+            else:
+                return x.values[0]
 
+        if table == 'Patients':
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['PRENOMINFO'],dsp_dat_match_rec['NOMINFO'],dsp_dat_match_rec['SEXEINFO'],dsp_dat_match_rec['DTNAISSINFO'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['RSS_LSPQ_CAS']))))
+
+        elif table == 'Prelevements':
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO']))))
 
     def Insert(self):
         for index,row in self.envois_gq.GetPandaDataFrame().loc[:,].iterrows():
@@ -225,30 +262,53 @@ class MySQLcovid19Updator:
             dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code)
 
             if dsp_dat_match_rec.shape[0] != 0:
-                val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name)
+                val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients')
                 self.InsertPatient(val_to_insert)
+
+                val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements')
+                self.InsertPrelevement(val_to_insert)
 
 class MySQLcovid19Selector:
     def __init__(self):
         pass
 
     @staticmethod
-    def CheckIfPatientExist(cursor,id_patient):
-        cursor.execute("select count(*) from Patients where ID_PATIENT = '{0}'".format(id_patient))
+    def IsMatch(cursor): 
         nb_match = cursor.fetchone()[0]
         if nb_match == 0:
             return False
         else:
             return True
-        
+
     @staticmethod
-    def GetPatientsColumn(cursor):
-        cursor.execute("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Patients'")
+    def CheckIfPatientExist(cursor,id_patient):
+        cursor.execute("select count(*) from Patients where ID_PATIENT = '{0}'".format(id_patient))
+        return MySQLcovid19Selector.IsMatch(cursor)
+       
+    @staticmethod
+    def CheckIfPrelevementExist(cursor,id_patient,dt_prelev_ch):
+        cursor.execute("select count(*) from Prelevements where ID_PATIENT = '{0}' and DATE_PRELEV_HOPITAL = '{1}'".format(id_patient,dt_prelev_ch))
+        return MySQLcovid19Selector.IsMatch(cursor)
+         
+    @staticmethod
+    def GetColumns(cursor):
         res = cursor.fetchall()
         columns = []
         for x in res:
-            columns.append(x[0])
-        return columns
+            if x[0] not in columns:
+                columns.append(x[0])
+        return list(columns)
+
+    @staticmethod
+    def GetPatientsColumn(cursor):
+        cursor.execute("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Patients'")
+        return MySQLcovid19Selector.GetColumns(cursor)
+
+    @staticmethod
+    def GetPrelevementsColumn(cursor):
+        cursor.execute("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Prelevements'")
+        return MySQLcovid19Selector.GetColumns(cursor)[1:] #on ne retourne pas la colonne ID_PRELEV car AUTO_INCREMENT
+
 
 class Utils:
     def __init__(self):
