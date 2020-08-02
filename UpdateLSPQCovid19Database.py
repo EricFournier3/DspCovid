@@ -187,6 +187,7 @@ class MySQLcovid19Updator:
         self.patients_columns_as_string = self.GetPatientsColumnsAsString()
         self.prelevements_columns_as_string = self.GetPrelevementsColumnsAsString()
 
+
     def GetChDspCode(self,lspq_ch_code):
         return self.ch_dsp2lspq_matcher.GetChDspCode(lspq_ch_code)
 
@@ -213,7 +214,7 @@ class MySQLcovid19Updator:
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_patients_inserted += 1
-                sys.stdout.write("Insert in Patients >> %d\r"%self.nb_patients_inserted)
+                #sys.stdout.write("Insert in Patients >>> %d\r"%self.nb_patients_inserted)
                 sys.stdout.flush()
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Patients avec le record " + str(val_to_insert) )
@@ -229,7 +230,7 @@ class MySQLcovid19Updator:
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_prelevements_inserted += 1
-                sys.stdout.write("Insert in Prelevements >> %d\r"%self.nb_prelevements_inserted)
+                #sys.stdout.write("Insert in Prelevements >>> %d\r"%self.nb_prelevements_inserted)
                 sys.stdout.flush()
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(val_to_insert))
@@ -256,17 +257,29 @@ class MySQLcovid19Updator:
         for index,row in self.envois_gq.GetPandaDataFrame().loc[:,].iterrows():
             ch_dsp2lspq_val = self.ch_dsp2lspq_matcher.GetChDspCode(row['CODE_HOPITAL_LSPQ']) 
             ch_dsp2lspq_val = self.GetChDspCode(row['CODE_HOPITAL_LSPQ'])
-            ch_dsp_code = ch_dsp2lspq_val[0]
-            ch_name = ch_dsp2lspq_val[1]
+            
+            try:
+                ch_dsp_code = ch_dsp2lspq_val[0]
+                ch_name = ch_dsp2lspq_val[1]
 
-            dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code)
+                dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code)
 
-            if dsp_dat_match_rec.shape[0] != 0:
-                val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients')
-                self.InsertPatient(val_to_insert)
+                if dsp_dat_match_rec.shape[0] != 0:
+                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients')
+                    self.InsertPatient(val_to_insert)
 
-                val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements')
-                self.InsertPrelevement(val_to_insert)
+                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements')
+                    self.InsertPrelevement(val_to_insert)
+
+                else:
+                    pass
+
+            except IndexError as err:
+                logging.error("No match for CH " + row['CODE_HOPITAL_LSPQ'])
+
+    def SaveNoMatchToExcel(self):
+        self.ch_dsp2lspq_matcher.WriteProblematicLSPQchToExcel()
+        self.envois_genome_quebec_2_dsp_dat_matcher.WriteNoMatchToExcel()
 
 class MySQLcovid19Selector:
     def __init__(self):
@@ -333,8 +346,12 @@ class Utils:
 
 
 class EnvoisGenomeQuebec_2_DSPdata_Matcher():
-    def __init__(self,dsp_dat):
+    def __init__(self,dsp_dat,excel_manager):
         self.dsp_dat = dsp_dat
+        self.excel_manager = excel_manager
+        self.no_match_df = pd.DataFrame(columns=['NOMINFO','PRENOMINFO','DTNAISSINFO','CODE_HOPITAL_DSP'])
+
+        self.nb_no_match = 0
 
     def ComputeDatePrelevDiff(self,match_df,dt_prelev):
         match_df['DATE_DIFF_1'] = match_df['DATE_PRELEV_1'] - dt_prelev
@@ -359,6 +376,8 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
             (dsp_dat_df['DTNAISSINFO']==dt_naiss) & (dsp_dat_df['CODE_HOPITAL_DSP'].str.strip()==dsp_ch_code),:].copy()
 
             if match_df.shape[0] == 0:
+                self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code}
+                self.nb_no_match += 1
                 return match_df
 
             self.ComputeDatePrelevDiff(match_df,dt_prelev)
@@ -369,17 +388,45 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
             print(e)
             return pd.DataFrame(columns=dsp_dat_df.columns)
 
+    def WriteNoMatchToExcel(self):
+        self.excel_manager.WriteToExcel(self.no_match_df,"NoDSPPatientfound.xlsx")
+
 
 class CH_DSP_2_LSPQ_Matcher():
-    def __init__(self,ch_dsp_2_lspq):
+    def __init__(self,ch_dsp_2_lspq,excel_manager):
+        self.excel_manager = excel_manager
         self.ch_dsp_2_lspq = ch_dsp_2_lspq
+        self.missing_match_df = pd.DataFrame(columns=['LSPQ_CH'])
+        self.over_one_match_df = pd.DataFrame(columns=['LSPQ_CH'])
+
+        self.nb_missing_match = 0
+        self.nb_over_one_match = 0
 
     def GetChDspCode(self,lspq_ch_code):
         df = self.ch_dsp_2_lspq.GetPandaDataFrame()
-        val = df.loc[df['PrefixLSPQ'] == lspq_ch_code,['PrefixDSP','ETABLISSEMENTS']].values[0]
-        dsp_ch_code = val[0]
-        ch_name = val[1]
-        return [dsp_ch_code,ch_name]
+        res = df.loc[df['PrefixLSPQ'] == lspq_ch_code,['PrefixDSP','ETABLISSEMENTS']].values
+
+        if len(res) == 0:
+            self.missing_match_df.loc[self.nb_missing_match] = lspq_ch_code
+            self.nb_missing_match += 1
+            return []
+        elif len(res) > 1:
+            self.over_one_match_df.loc[self.nb_missing_match] = lspq_ch_code
+            self.nb_over_one_match += 1
+            return []
+        else:
+            val = res[0]
+            dsp_ch_code = val[0]
+            if not isinstance(dsp_ch_code,str):
+                self.missing_match_df.loc[self.nb_missing_match] = lspq_ch_code
+                return []
+            else:
+                ch_name = val[1]
+                return [dsp_ch_code,ch_name]
+
+    def WriteProblematicLSPQchToExcel(self):
+        self.excel_manager.WriteToExcel(self.missing_match_df,"LSPQ_CH_missing_match.xlsx")
+        self.excel_manager.WriteToExcel(self.over_one_match_df,"LSPQ_CH_over_one_match.xlsx")
 
 class ExcelManager:
     def __init__(self,_debug):
@@ -399,8 +446,11 @@ class ExcelManager:
 
         if self._debug:
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
+
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nochmatch.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
         else:
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
             self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec.xlsx')
@@ -427,11 +477,12 @@ def Main():
     dsp_data = DSPdata(excel_manager)
     envois_genome_quebec_data = EnvoisGenomeQuebec(excel_manager)
         
-    ch_dsp2lspq_matcher = CH_DSP_2_LSPQ_Matcher(ch_dsp_2_lspq)
-    envois_genome_quebec_2_dsp_dat_matcher = EnvoisGenomeQuebec_2_DSPdata_Matcher(dsp_data)
+    ch_dsp2lspq_matcher = CH_DSP_2_LSPQ_Matcher(ch_dsp_2_lspq,excel_manager)
+    envois_genome_quebec_2_dsp_dat_matcher = EnvoisGenomeQuebec_2_DSPdata_Matcher(dsp_data,excel_manager)
 
     sql_updator = MySQLcovid19Updator(dsp_data,envois_genome_quebec_data,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19)
     sql_updator.Insert()
+    sql_updator.SaveNoMatchToExcel()
 
     #Utils.Inspect(dsp_data,envois_genome_quebec_data)
 
