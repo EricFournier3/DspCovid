@@ -7,7 +7,7 @@ Eric Fournier 2020-07-29
 """
 #TODO
 """
-HPLG pas de date de naissance => utiliser le NAM
+HPLG pas de date de naissance => utiliser le NAM => demander d ajouter cette colonne dans le fichier liste envois
 
 """
 
@@ -69,7 +69,6 @@ class DSPdata:
         print("********************************************************")
 
     def RenameColumns(self):
-        pass
         self.pd_df = self.pd_df.rename(columns=self.renamed_columns_dict)
 
     def GetPandaDataFrame(self):
@@ -112,16 +111,45 @@ class EnvoisGenomeQuebec:
         self.CreateCodeChLspq()
 
     def RemoveWrongDateFormatRecord(self):
+        logging.info("Remove wrong date format form Envois Genome Quebec")
         self.pd_df_with_wrong_date_format = pd.DataFrame(columns=self.pd_df.columns)        
 
         index_good = 0
         index_bad = 0
 
         for index, row in self.pd_df.loc[:,].iterrows():
+            nam = row['NAM']
+
             if((Utils.CheckDateFormat(str(type(row['DTNAISSINFO'])))) and (Utils.CheckDateFormat(str(type(row['DATE_PRELEV'])))) and (Utils.CheckDateFormat(str(type(row['DATE_ENVOI_GENOME_QUEBEC']))))):
                 
                 self.final_pd_df.loc[index_good] = row
                 index_good += 1
+
+            elif isinstance(nam,str) or isinstance(row['DATE_PRELEV'],str):
+
+                if isinstance(nam,str):
+                    dt_naiss = Utils.GetDateNaissFromNAM(nam)
+
+                    if not dt_naiss:
+                        self.pd_df_with_wrong_date_format.loc[index_bad] = row
+                        index_bad += 1 
+                        continue
+
+                    row['DTNAISSINFO'] = dt_naiss 
+
+                if isinstance(row['DATE_PRELEV'],str):
+                    str_dt_prelev = row['DATE_PRELEV']
+                    dt_prelev = Utils.GetDateFromStrDate(str_dt_prelev)
+                    if not dt_prelev:
+                        self.pd_df_with_wrong_date_format.loc[index_bad] = row
+                        index_bad += 1 
+                        continue
+
+                    row['DATE_PRELEV'] = dt_prelev
+
+                self.final_pd_df.loc[index_good] = row
+                index_good += 1
+                    
             else:
                 self.pd_df_with_wrong_date_format.loc[index_bad] = row
                 index_bad += 1 
@@ -133,6 +161,8 @@ class EnvoisGenomeQuebec:
 
     def CreateCodeChLspq(self):
         self.pd_df['CODE_HOPITAL_LSPQ'] = self.pd_df['GENOME_QUEBEC_REQUETE'].str.extract(r'(\S+-)\S+')
+        self.pd_df['CODE_HOPITAL_LSPQ_PLUS'] = self.pd_df['GENOME_QUEBEC_REQUETE'].str.extract(r'(\S+-\S)\S+')
+        self.pd_df['CODE_HOPITAL_LSPQ_IS_CH_SOREL'] = np.where(self.pd_df.CODE_HOPITAL_LSPQ_PLUS == 'HDS-S',True,False)
 
     def ToUpperCase(self):
         self.pd_df['NOMINFO'] = self.pd_df['NOMINFO'].str.upper() 
@@ -187,7 +217,6 @@ class MySQLcovid19Updator:
         self.patients_columns_as_string = self.GetPatientsColumnsAsString()
         self.prelevements_columns_as_string = self.GetPrelevementsColumnsAsString()
 
-
     def GetChDspCode(self,lspq_ch_code):
         return self.ch_dsp2lspq_matcher.GetChDspCode(lspq_ch_code)
 
@@ -214,7 +243,7 @@ class MySQLcovid19Updator:
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_patients_inserted += 1
-                #sys.stdout.write("Insert in Patients >>> %d\r"%self.nb_patients_inserted)
+                sys.stdout.write("Insert in Patients >>> %d\r"%self.nb_patients_inserted)
                 sys.stdout.flush()
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Patients avec le record " + str(val_to_insert) )
@@ -230,7 +259,7 @@ class MySQLcovid19Updator:
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_prelevements_inserted += 1
-                #sys.stdout.write("Insert in Prelevements >>> %d\r"%self.nb_prelevements_inserted)
+                sys.stdout.write("Insert in Prelevements >>> %d\r"%self.nb_prelevements_inserted)
                 sys.stdout.flush()
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(val_to_insert))
@@ -254,13 +283,20 @@ class MySQLcovid19Updator:
             return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO']))))
 
     def Insert(self):
+        logging.info("Begin insert")
+
         for index,row in self.envois_gq.GetPandaDataFrame().loc[:,].iterrows():
-            ch_dsp2lspq_val = self.ch_dsp2lspq_matcher.GetChDspCode(row['CODE_HOPITAL_LSPQ']) 
+            is_ch_sorel = row['CODE_HOPITAL_LSPQ_IS_CH_SOREL']
             ch_dsp2lspq_val = self.GetChDspCode(row['CODE_HOPITAL_LSPQ'])
             
             try:
-                ch_dsp_code = ch_dsp2lspq_val[0]
-                ch_name = ch_dsp2lspq_val[1]
+
+                if is_ch_sorel:
+                    ch_dsp_code = 'HCLM'
+                    ch_name = 'Hôtel-Dieu de Sorel'
+                else:
+                    ch_dsp_code = ch_dsp2lspq_val[0]
+                    ch_name = ch_dsp2lspq_val[1]
 
                 dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code)
 
@@ -344,6 +380,66 @@ class Utils:
         dsp_data.PrintColumns()
         envois_genome_quebec_data.PrintColumns()
 
+    @staticmethod
+    def GetDateNaissFromNAM(nam):
+
+        def GetCompleteBirthYear(birth_year_last_two_digit):
+            max_age = 105
+
+            current_year = str(datetime.date.today().year)
+            current_year_last_two_digit = current_year[-2:]
+
+            if birth_year_last_two_digit > current_year_last_two_digit:
+                return "19" + birth_year_last_two_digit
+
+            elif  int(current_year) - int("19"+birth_year_last_two_digit) > max_age:
+                return "20"+birth_year_last_two_digit
+
+            else:
+               return None
+
+        if len(nam) == 12:
+            pattern_obj = re.compile(r'(\S{4})(\d{6})(\S{2})')
+            search_obj = pattern_obj.search(nam)
+            name_info = search_obj.group(1)
+            dt_naiss = search_obj.group(2)
+            suffix = search_obj.group(3)
+
+            complete_birth_year = GetCompleteBirthYear(dt_naiss[0:2])
+            month_naiss = dt_naiss[2:4]
+            day_naiss = dt_naiss[4:6]
+            
+            if complete_birth_year:
+                date_naiss = complete_birth_year + "-" +  month_naiss + "-" + day_naiss 
+                date_naiss_as_date = datetime.datetime.strptime(date_naiss,'%Y-%m-%d')
+                return date_naiss_as_date
+
+            return None
+
+    @staticmethod
+    def GetDateFromStrDate(str_date):
+
+        date_as_date = ""
+
+        try:
+            match_obj = re.compile(r'(\d?\d)/(\d\d?)')
+            search_obj = match_obj.search(str_date)
+            day = search_obj.group(1)
+            month =search_obj.group(2)
+            
+            current_year = str(datetime.datetime.today().year)
+
+            if len(day) == 1:
+                day = "0" + day
+            if len(month) == 1:
+                month = "0" + month
+
+            date_as_date = datetime.datetime.strptime(current_year + "-" + month + "-" + day,'%Y-%m-%d')
+        except:
+            #print(sys.exc_info())
+            return None
+
+        return date_as_date
 
 class EnvoisGenomeQuebec_2_DSPdata_Matcher():
     def __init__(self,dsp_dat,excel_manager):
@@ -410,8 +506,8 @@ class CH_DSP_2_LSPQ_Matcher():
             self.missing_match_df.loc[self.nb_missing_match] = lspq_ch_code
             self.nb_missing_match += 1
             return []
-        elif len(res) > 1:
-            self.over_one_match_df.loc[self.nb_missing_match] = lspq_ch_code
+        elif len(res) > 1 and lspq_ch_code != 'HDS-':
+            self.over_one_match_df.loc[self.nb_over_one_match] = lspq_ch_code
             self.nb_over_one_match += 1
             return []
         else:
@@ -445,12 +541,15 @@ class ExcelManager:
         self.ch_dsp2lspq_file = os.path.join(self.basedir_envois_genome_quebec,'PREFIX_CH_LSPQvsDSP.xlsx')
 
         if self._debug:
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HDS.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HPLG.xlsm')
 
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nochmatch.xlsx')
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_HPLG.xlsx')
         else:
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
             self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec.xlsx')
