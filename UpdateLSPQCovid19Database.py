@@ -8,7 +8,7 @@ Eric Fournier 2020-07-29
 
 #TODO
 """
-
+Update statut dans table Patients
 
 """
 
@@ -23,7 +23,7 @@ import logging
 import gc
 
 _use_ch_mapping = False
-_debug_ = True
+_debug_ = False
 
 pd.options.display.max_columns = 100
 logging.basicConfig(level=logging.DEBUG)
@@ -48,14 +48,17 @@ class DSPdata:
         self.ToDateTime()
 
     def ToDateTime(self):
-        self.pd_df['DATE_PRELEV_1'] = pd.to_datetime(self.pd_df['DATE_PRELEV_1'])
-        self.pd_df['DATE_PRELEV_2'] = pd.to_datetime(self.pd_df['DATE_PRELEV_2'])
-        self.pd_df['DTNAISSINFO'] = pd.to_datetime(self.pd_df['DTNAISSINFO'])
+        #https://stackoverflow.com/questions/39604094/pandas-delete-all-rows-that-are-not-a-datetime-type
+        self.pd_df['DATE_PRELEV_1'] = pd.to_datetime(self.pd_df['DATE_PRELEV_1'],errors='coerce')
+        self.pd_df['DATE_PRELEV_2'] = pd.to_datetime(self.pd_df['DATE_PRELEV_2'],errors='coerce')
+        self.pd_df['DTNAISSINFO'] = pd.to_datetime(self.pd_df['DTNAISSINFO'],errors='coerce')
+        self.pd_df = self.pd_df.dropna(subset= ['DATE_PRELEV_1','DATE_PRELEV_2','DTNAISSINFO'])
+
+        print("Nb lines in DSP  dat ",self.pd_df.shape[0])
 
     def CreateIdPatient(self):
         self.pd_df['ID_PATIENT'] = self.pd_df['NOBENEF'].apply(str) + "-" + self.pd_df['NAM_LSPQ']
         
-
     def FillNA(self):
         self.pd_df = pd.concat([self.pd_df[['NOBENEF','NAM_LSPQ']].fillna(''),self.pd_df[['SEXEINFO']].fillna('missing'),self.pd_df[['CODE_HOPITAL_DSP','NOMINFO','PRENOMINFO','DTNAISSINFO','DATE_PRELEV_1','DATE_CONF_LSPQ_1','DATE_CONF_LSPQ_2','DATE_PRELEV_2','ID_PHYLO']],self.pd_df[['STATUT']].fillna('missing'),self.pd_df[['RSS_LSPQ_CAS']].fillna('missing')],axis=1)
 
@@ -193,7 +196,7 @@ class MySQLcovid19:
         self.host = 'localhost'
         self.user = 'root'
         self.password = 'lspq2019'
-        self.database = 'TestCovid19v3'
+        self.database = 'TestCovid19v4'
         self.connection = self.SetConnection()
 
     def SetConnection(self):
@@ -483,7 +486,9 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
        
         try: 
             nom = nom.strip(' ')
+            nom_no_space = re.sub(r' |-','',nom)
             prenom = prenom.strip(' ')
+            prenom_no_space = re.sub(r' |-','',prenom)
             dsp_ch_code = dsp_ch_code.strip(' ')
         except:
                 self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code}
@@ -493,9 +498,9 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
         try:
             dsp_dat_df = self.dsp_dat.GetPandaDataFrame()
             if use_ch:
-                match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ')==nom) & (dsp_dat_df['PRENOMINFO'].str.strip(' ')==prenom) & (dsp_dat_df['DTNAISSINFO']==dt_naiss) & (dsp_dat_df['CODE_HOPITAL_DSP'].str.strip()==dsp_ch_code),:].copy()
+                match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ').isin([nom,nom_no_space])) & (dsp_dat_df['PRENOMINFO'].str.strip(' ').isin([prenom,prenom_no_space])) & (dsp_dat_df['DTNAISSINFO']==dt_naiss) & (dsp_dat_df['CODE_HOPITAL_DSP'].str.strip()==dsp_ch_code),:].copy()
             else:
-                match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ')==nom) & (dsp_dat_df['PRENOMINFO'].str.strip(' ')==prenom) & (dsp_dat_df['DTNAISSINFO']==dt_naiss) ,:].copy()
+                match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ').isin([nom,nom_no_space])) & (dsp_dat_df['PRENOMINFO'].str.strip(' ').isin([prenom,prenom_no_space])) & (dsp_dat_df['DTNAISSINFO']==dt_naiss) ,:].copy()
 
             if match_df.shape[0] == 0:
                 self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code}
@@ -580,16 +585,20 @@ class ExcelManager:
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HDS.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HPLG.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_SJ.xlsm')
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_DUPLICATE.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_DUPLICATE.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_BADDATE.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_TESTSPACE.xlsm')
 
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nochmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_HPLG.xlsx')
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_SJ.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_SJ.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_TESTSPACE.xlsx')
         else:
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_31072020.xlsm')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec.xlsx')
             self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_2020-07-22_CORR.xlsx')
 
