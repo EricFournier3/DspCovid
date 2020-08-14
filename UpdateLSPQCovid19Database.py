@@ -9,7 +9,7 @@ Eric Fournier 2020-07-29
 #TODO
 """
 Update statut dans table Patients
-
+Ajout des metrics de sequences
 """
 
 import mysql.connector
@@ -23,7 +23,7 @@ import logging
 import gc
 
 _use_ch_mapping = False
-_debug_ = False
+_debug_ = True
 
 pd.options.display.max_columns = 100
 logging.basicConfig(level=logging.DEBUG)
@@ -96,8 +96,7 @@ class EnvoisGenomeQuebec:
     def __init__(self,excel_manager):
         self.excel_manager = excel_manager
         self.renamed_columns_dict = {'# Requête':'GENOME_QUEBEC_REQUETE','Nom':'NOMINFO','Prénom':'PRENOMINFO',
-'Date de naissance':'DTNAISSINFO','Date de prélèvement':'DATE_PRELEV','# Boîte':'NO_BOITE','DateEnvoiGenomeQuebec':'DATE_ENVOI_GENOME_QUEBEC'}
-
+'Date de naissance':'DTNAISSINFO','Date de prélèvement':'DATE_PRELEV','# Boîte':'NO_BOITE','DateEnvoiGenomeQuebec':'DATE_ENVOI_GENOME_QUEBEC','NAM':'NAM'}
         self.SetPandaDataFrame()
 
         self.final_pd_df = pd.DataFrame(columns=self.pd_df.columns)
@@ -191,12 +190,70 @@ class EnvoisGenomeQuebec:
     def GetColumns(self):
         return ','.join(self.final_pd_df.columns.values)
 
+class SGILdata:
+    def __init__(self,excel_manager):
+        self.excel_manager = excel_manager
+        self.SetPandaDataFrame()
+
+        self.final_pd_df = pd.DataFrame(columns=self.pd_df.columns)
+        self.pd_df_with_wrong_date_format = pd.DataFrame(columns=self.pd_df.columns)
+
+        self.RemoveWrongDateFormatRecord()
+        self.SortByDatePrelev()
+
+    def SortByDatePrelev(self):
+        self.final_pd_df = self.final_pd_df.sort_values(by=['SAMPLED_DATE'],ascending=True)
+
+    def GetPandaDataFrame(self):
+        return self.final_pd_df
+
+    def GetColumns(self):
+        return ','.join(self.final_pd_df.columns.values)
+
+    def RemoveWrongDateFormatRecord(self):
+        logging.info("Remove wrong date format form SGIL data")
+        
+        index_good = 0
+        index_bad = 0
+        tested_row = 0
+
+        for index, row in self.pd_df.loc[:,].iterrows():
+            tested_row += 1
+            sys.stdout.write("Test row >>> %d\r"%tested_row)
+            sys.stdout.flush()
+
+            if((Utils.CheckDateFormat(str(type(row['SAMPLED_DATE'])))) and (Utils.CheckDateFormat(str(type(row['DATE_NAISS']))))):
+                self.final_pd_df.loc[index_good] = row
+                index_good += 1
+            else:
+                self.pd_df_with_wrong_date_format.loc[index_bad] = row
+                index_bad += 1
+
+        self.excel_manager.WriteToExcel(self.pd_df_with_wrong_date_format,"SGILdataWithBadDate.xlsx")
+
+        del self.pd_df
+        gc.collect()
+
+    def SetPandaDataFrame(self):
+        self.pd_df = self.excel_manager.ReadSGILdataFile()
+        self.ToUpperCase()
+        self.ToDateTime()
+
+    def ToUpperCase(self):
+        self.pd_df['NOM'] = self.pd_df['NOM'].str.upper()
+        self.pd_df['PRENOM'] = self.pd_df['PRENOM'].str.upper() 
+
+    def ToDateTime(self):
+        self.pd_df['SAMPLED_DATE'] =  pd.to_datetime(self.pd_df['SAMPLED_DATE'],errors='coerce')
+        self.pd_df['DATE_NAISS'] =  pd.to_datetime(self.pd_df['DATE_NAISS'],errors='coerce')
+
+
 class MySQLcovid19:
     def __init__(self):
         self.host = 'localhost'
         self.user = 'root'
         self.password = 'lspq2019'
-        self.database = 'TestCovid19v4'
+        self.database = 'TestCovid19v5'
         self.connection = self.SetConnection()
 
     def SetConnection(self):
@@ -213,17 +270,19 @@ class MySQLcovid19:
 
 
 class MySQLcovid19Updator:
-    def __init__(self,dsp_dat,envois_gq,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19):
+    def __init__(self,dsp_dat,sgil_dat,envois_gq,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19,sgil_dat_2_dsp_dat_matcher):
         self.dsp_dat = dsp_dat
+        self.sgil_dat = sgil_dat
         self.envois_gq = envois_gq
         self.ch_dsp2lspq_matcher = ch_dsp2lspq_matcher
         self.envois_genome_quebec_2_dsp_dat_matcher = envois_genome_quebec_2_dsp_dat_matcher
+        self.sgil_dat_2_dsp_dat_matcher = sgil_dat_2_dsp_dat_matcher
         self.db = db_covid19
         self.nb_patients_inserted = 0
         self.nb_prelevements_inserted = 0
 
         self.patients_columns_as_string = self.GetPatientsColumnsAsString()
-        self.prelevements_columns_as_string = self.GetPrelevementsColumnsAsString()
+        self.SetPrelevementsColumnsAsString()
 
     def GetChDspCode(self,lspq_ch_code):
         return self.ch_dsp2lspq_matcher.GetChDspCode(lspq_ch_code)
@@ -231,10 +290,14 @@ class MySQLcovid19Updator:
     def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch):
         return self.envois_genome_quebec_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch)
 
-    def GetPrelevementsColumnsAsString(self):
+
+    def GetDSPmatchWithSGILdat(self,pid,dt_prelev,ch):
+        return self.sgil_dat_2_dsp_dat_matcher.GetDSPmatch(pid,dt_prelev,ch)
+
+    def SetPrelevementsColumnsAsString(self):
         columns_list =  MySQLcovid19Selector.GetPrelevementsColumn(self.db.GetCursor())
-        prelevements_columns_as_string = ','.join(columns_list)
-        return prelevements_columns_as_string
+        self.prelevements_columns_as_string = ','.join(columns_list[0])
+        self.prelevements_columns_as_string_for_sgil_insert = ','.join(columns_list[1])
 
     def GetPatientsColumnsAsString(self):
         columns_list = MySQLcovid19Selector.GetPatientsColumn(self.db.GetCursor())
@@ -257,13 +320,18 @@ class MySQLcovid19Updator:
                 logging.error("Erreur d'insertion dans la table Patients avec le record " + str(val_to_insert) )
                 print(err)
 
-    def InsertPrelevement(self,val_to_insert):
-        exist = MySQLcovid19Selector.CheckIfPrelevementExist(self.db.GetCursor(),val_to_insert[0],val_to_insert[8])
+    def InsertPrelevement(self,val_to_insert,is_sgil):
+        exist = MySQLcovid19Selector.CheckIfPrelevementExist(self.db.GetCursor(),val_to_insert[10])
 
         if not exist:
             try:
-                ncols = self.prelevements_columns_as_string.count(",") + 1
-                sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.prelevements_columns_as_string,str("%s,"*ncols)[:-1])
+                if not is_sgil:
+                    ncols = self.prelevements_columns_as_string.count(",") + 1
+                    sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.prelevements_columns_as_string,str("%s,"*ncols)[:-1])
+                else:
+                    ncols = self.prelevements_columns_as_string_for_sgil_insert.count(",") + 1
+                    sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.prelevements_columns_as_string_for_sgil_insert,str("%s,"*ncols)[:-1])
+
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_prelevements_inserted += 1
@@ -273,7 +341,7 @@ class MySQLcovid19Updator:
                 logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(val_to_insert))
                 print(err)
 
-    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name,table):
+    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name,table,is_sgil):
         def GetVal(x):
             if isinstance(x,pd.Timestamp):
                 return str(x)
@@ -287,9 +355,12 @@ class MySQLcovid19Updator:
         if table == 'Patients':
             return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['PRENOMINFO'],dsp_dat_match_rec['NOMINFO'],dsp_dat_match_rec['SEXEINFO'],dsp_dat_match_rec['DTNAISSINFO'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['RSS_LSPQ_CAS']))))
 
-        elif table == 'Prelevements':
+        elif table == 'Prelevements' and not is_sgil:
             return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO']))))
 
+        elif table == 'Prelevements' and  is_sgil:
+            #TODO METTRE NA POUR DATE ENVOI GENOME QUEBEC
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],'LSPQ','LSPQ',dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['SAMPLED_DATE'],current_envoi['NUMERO_SGIL'],dsp_dat_match_rec['ID_PHYLO']))))
 
     def Insert(self,use_ch):
         logging.info("Begin insert")
@@ -310,17 +381,28 @@ class MySQLcovid19Updator:
                 dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code,use_ch)
 
                 if  dsp_dat_match_rec.shape[0] != 0:
-                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients')
+                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients',False)
                     self.InsertPatient(val_to_insert)
 
-                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements')
-                    self.InsertPrelevement(val_to_insert)
+                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements',False)
+                    self.InsertPrelevement(val_to_insert,False)
 
                 else:
                     pass
 
             except IndexError as err:
                 logging.error("No match for CH " + row['CODE_HOPITAL_LSPQ'])
+
+        for index,row in self.sgil_dat.GetPandaDataFrame().loc[:,].iterrows():
+            try:
+                dsp_dat_match_rec = self.GetDSPmatchWithSGILdat(row['PID'],row['SAMPLED_DATE'],'LSPQ')
+                if dsp_dat_match_rec.shape[0] != 0:
+                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,'LSPQ','Patients',True)
+                    self.InsertPatient(val_to_insert)
+                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,'LSPQ','Prelevements',True)
+                    self.InsertPrelevement(val_to_insert,True)
+            except:
+                pass
 
     def SaveNoMatchToExcel(self):
         self.ch_dsp2lspq_matcher.WriteProblematicLSPQchToExcel()
@@ -344,28 +426,47 @@ class MySQLcovid19Selector:
         return MySQLcovid19Selector.IsMatch(cursor)
        
     @staticmethod
-    def CheckIfPrelevementExist(cursor,id_patient,dt_prelev_ch):
-        cursor.execute("select count(*) from Prelevements where ID_PATIENT = '{0}' and DATE_PRELEV_HOPITAL = '{1}'".format(id_patient,dt_prelev_ch))
+    def CheckIfPrelevementExist(cursor,no_req):
+        cursor.execute("select count(*) from Prelevements where GENOME_QUEBEC_REQUETE  = '{0}'".format(no_req))
         return MySQLcovid19Selector.IsMatch(cursor)
          
     @staticmethod
-    def GetColumns(cursor):
-        res = cursor.fetchall()
-        columns = []
-        for x in res:
-            if x[0] not in columns:
-                columns.append(x[0])
-        return list(columns)
+    def GetColumns(cursor,table):
+        if table == 'Prelevements':
+            res = cursor.fetchall()
+            id_prelev_col = 'ID_PRELEV'
+            date_envoi_genome_quebec_col = 'DATE_ENVOI_GENOME_QUEBEC'
+            columns = []
+            columns_for_sgil_insert = []
+        
+            for x in res:
+                if x[0] not in columns and x[0] != id_prelev_col:
+                    columns.append(x[0])
+                if x[0] not in columns_for_sgil_insert  and x[0] != id_prelev_col and x[0] != date_envoi_genome_quebec_col:
+                    columns_for_sgil_insert.append(x[0])
+
+            columns = list(columns)
+            columns_for_sgil_insert = list(columns_for_sgil_insert)
+
+            return [columns,columns_for_sgil_insert]
+
+        elif table == 'Patients':
+            res = cursor.fetchall()
+            columns = []
+            for x in res:
+                if x[0] not in columns:
+                    columns.append(x[0])
+            return list(columns)
 
     @staticmethod
     def GetPatientsColumn(cursor):
         cursor.execute("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Patients'")
-        return MySQLcovid19Selector.GetColumns(cursor)
+        return MySQLcovid19Selector.GetColumns(cursor,'Patients')
 
     @staticmethod
     def GetPrelevementsColumn(cursor):
         cursor.execute("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Prelevements'")
-        return MySQLcovid19Selector.GetColumns(cursor)[1:] #on ne retourne pas la colonne ID_PRELEV car AUTO_INCREMENT
+        return MySQLcovid19Selector.GetColumns(cursor,'Prelevements') 
 
 
 class Utils:
@@ -459,6 +560,49 @@ class Utils:
             return None
 
         return date_as_date
+
+
+class SGILdata_2_DSPdata_Matcher():
+    def __init__(self,dsp_dat,excel_manager):
+        self.dsp_dat = dsp_dat
+        self.excel_manager = excel_manager
+        self.no_match_df = pd.DataFrame(columns=['PID'])
+        self.nb_no_match = 0
+
+    def GetDSPmatch(self,pid,dt_prelev,ch):
+        try:
+            pid = pid.strip(' ')
+        except:
+            self.no_match_df.loc[self.nb_no_match] = {'PID':pid}
+            self.nb_no_match += 1
+            return pd.DataFrame()
+
+        try:
+            dsp_dat_df = self.dsp_dat.GetPandaDataFrame()
+            
+            match_df = dsp_dat_df.loc[(dsp_dat_df['NOBENEF'].str.strip(' ') == pid) & (dsp_dat_df['CODE_HOPITAL_DSP'].str.strip()==ch),:].copy()
+            if match_df.shape[0] == 0:
+                self.no_match_df.loc[self.nb_no_match] = {'PID':pid}
+                self.nb_no_match += 1
+                return match_df
+
+            self.ComputeDatePrelevDiff(match_df,dt_prelev)
+            return(match_df[match_df.MIN_DELTA == match_df.MIN_DELTA.min()])
+
+        except AttributeError as e:
+            print(e)
+            return pd.DataFrame(columns=dsp_dat_df.columns)
+
+    def ComputeDatePrelevDiff(self,match_df,dt_prelev):
+        match_df['DATE_DIFF_1'] = match_df['DATE_PRELEV_1'] - dt_prelev
+        match_df['DATE_DIFF_1'] = match_df['DATE_DIFF_1'].abs()
+        match_df['DATE_DIFF_2'] = match_df['DATE_PRELEV_2'] - dt_prelev
+        match_df['DATE_DIFF_2'] = match_df['DATE_DIFF_2'].abs()
+
+        try:
+            match_df['MIN_DELTA'] = match_df[['DATE_DIFF_1','DATE_DIFF_2']].min(axis=1)
+        except:
+            pass
 
 class EnvoisGenomeQuebec_2_DSPdata_Matcher():
     def __init__(self,dsp_dat,excel_manager):
@@ -570,6 +714,7 @@ class ExcelManager:
         self.basedir = "/data/Databases/COVID19_DSP/"
         self.basedir_dsp_data = os.path.join(self.basedir,"BD_PHYLOGENIE")
         self.basedir_envois_genome_quebec = os.path.join(self.basedir,"LISTE_ENVOIS_GENOME_QUEBEC")
+        self.basedir_sgil_data = os.path.join(self.basedir,"SGIL_EXTRACT")
         self.basedir_script_out = os.path.join(self.basedir,"SCRIPT_OUT")
         self.dsp_data_file = None
         self.envois_genome_quebec_file = None
@@ -581,26 +726,29 @@ class ExcelManager:
         self.ch_dsp2lspq_file = os.path.join(self.basedir_envois_genome_quebec,'PREFIX_CH_LSPQvsDSP.xlsx')
 
         if self._debug:
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HDS.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HPLG.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_SJ.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_DUPLICATE.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_BADDATE.xlsm')
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_TESTSPACE.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_TESTSPACE.xlsm')
 
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nochmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_HPLG.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_SJ.xlsx')
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_TESTSPACE.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_TESTSPACE.xlsx')
+
+            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200812_minimal_small.txt')
         else:
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_31072020.xlsm')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec.xlsx')
             self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_2020-07-22_CORR.xlsx')
+            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200812_minimal.txt')
 
     def ReadDspDataFile(self):
         return pd.read_excel(self.dsp_data_file,sheet_name='BD_Phylogenie')
@@ -610,6 +758,9 @@ class ExcelManager:
 
     def ReadChDSP2LSPQ(self):
         return pd.read_excel(self.ch_dsp2lspq_file,sheet_name='Feuil1')
+
+    def ReadSGILdataFile(self):
+        return pd.read_table(self.sgil_data_file)
 
     def WriteToExcel(self,df,file_name):
         df.to_excel(os.path.join(self.basedir_script_out,file_name),sheet_name='Sheet1')
@@ -623,11 +774,11 @@ def Main():
     ch_dsp_2_lspq =  CH_DSPtoLSPQ(excel_manager) 
     dsp_data = DSPdata(excel_manager)
     envois_genome_quebec_data = EnvoisGenomeQuebec(excel_manager)
-        
+    sgil_data = SGILdata(excel_manager)
     ch_dsp2lspq_matcher = CH_DSP_2_LSPQ_Matcher(ch_dsp_2_lspq,excel_manager)
     envois_genome_quebec_2_dsp_dat_matcher = EnvoisGenomeQuebec_2_DSPdata_Matcher(dsp_data,excel_manager)
-
-    sql_updator = MySQLcovid19Updator(dsp_data,envois_genome_quebec_data,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19)
+    sgil_dat_2_dsp_dat_matcher = SGILdata_2_DSPdata_Matcher(dsp_data,excel_manager)
+    sql_updator = MySQLcovid19Updator(dsp_data,sgil_data,envois_genome_quebec_data,ch_dsp2lspq_matcher,envois_genome_quebec_2_dsp_dat_matcher,db_covid19,sgil_dat_2_dsp_dat_matcher)
 
     sql_updator.Insert(_use_ch_mapping)
     
