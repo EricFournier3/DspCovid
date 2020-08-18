@@ -299,8 +299,8 @@ class MySQLcovid19Updator:
         return self.envois_genome_quebec_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch)
 
 
-    def GetDSPmatchWithSGILdat(self,pid,dt_prelev,ch):
-        return self.sgil_dat_2_dsp_dat_matcher.GetDSPmatch(pid,dt_prelev,ch)
+    def GetDSPmatchWithSGILdat(self,nom,prenom,dt_naiss,dt_prelev,ch,numero_sgil):
+        return self.sgil_dat_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch,numero_sgil)
 
     def SetPrelevementsColumnsAsString(self):
         columns_list =  MySQLcovid19Selector.GetPrelevementsColumn(self.db.GetCursor())
@@ -404,9 +404,22 @@ class MySQLcovid19Updator:
             except IndexError as err:
                 logging.error("No match for CH " + row['CODE_HOPITAL_LSPQ'])
 
+        '''
         for index,row in self.sgil_dat.GetPandaDataFrame().loc[:,].iterrows():
             try:
-                dsp_dat_match_rec = self.GetDSPmatchWithSGILdat(row['PID'],row['SAMPLED_DATE'],'LSPQ')
+                dsp_dat_match_rec = self.GetDSPmatchWithSGILdat(row['PID'],row['SAMPLED_DATE'],'LSPQ',row['NUMERO_SGIL'])
+                if dsp_dat_match_rec.shape[0] != 0:
+                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,row['CH_NAME'],'Patients',True,row['CH_ADRESS'])
+                    self.InsertPatient(val_to_insert)
+                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,row['CH_NAME'],'Prelevements',True,row['CH_ADRESS'])
+                    self.InsertPrelevement(val_to_insert,True)
+            except:
+                pass
+        '''
+
+        for index,row in self.sgil_dat.GetPandaDataFrame().loc[:,].iterrows():
+            try:
+                dsp_dat_match_rec = self.GetDSPmatchWithSGILdat(row['NOM'],row['PRENOM'],row['DATE_NAISS'],row['SAMPLED_DATE'],'LSPQ',row['NUMERO_SGIL'])
                 if dsp_dat_match_rec.shape[0] != 0:
                     val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,row['CH_NAME'],'Patients',True,row['CH_ADRESS'])
                     self.InsertPatient(val_to_insert)
@@ -418,6 +431,7 @@ class MySQLcovid19Updator:
     def SaveNoMatchToExcel(self):
         self.ch_dsp2lspq_matcher.WriteProblematicLSPQchToExcel()
         self.envois_genome_quebec_2_dsp_dat_matcher.WriteNoMatchToExcel()
+        self.sgil_dat_2_dsp_dat_matcher.WriteNoMatchToExcel()
 
 class MySQLcovid19Selector:
     def __init__(self):
@@ -577,23 +591,27 @@ class SGILdata_2_DSPdata_Matcher():
     def __init__(self,dsp_dat,excel_manager):
         self.dsp_dat = dsp_dat
         self.excel_manager = excel_manager
-        self.no_match_df = pd.DataFrame(columns=['PID'])
+        self.no_match_df = pd.DataFrame(columns=['NUMERO_SGIL','NOM','PRENOM','DT_NAISS','DT_PRELEV'])
         self.nb_no_match = 0
 
-    def GetDSPmatch(self,pid,dt_prelev,ch):
+    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,ch,numero_sgil):
         try:
-            pid = pid.strip(' ')
+            nom = nom.strip(' ')
+            nom_no_space = re.sub(r' |-','',nom)
+            prenom = prenom.strip(' ')
+            prenom_no_space = re.sub(r' |-','',prenom)
         except:
-            self.no_match_df.loc[self.nb_no_match] = {'PID':pid}
+            self.no_match_df.loc[self.nb_no_match] = {'NUMERO_SGIL':numero_sgil,'NOM':nom,'PRENOM':prenom,'DT_NAISS':dt_naiss,'DT_PRELEV':dt_prelev}
             self.nb_no_match += 1
             return pd.DataFrame()
 
         try:
             dsp_dat_df = self.dsp_dat.GetPandaDataFrame()
             
-            match_df = dsp_dat_df.loc[(dsp_dat_df['NOBENEF'].str.strip(' ') == pid) & (dsp_dat_df['CODE_HOPITAL_DSP'].str.strip()==ch),:].copy()
+            match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ').isin([nom,nom_no_space])) & (dsp_dat_df['PRENOMINFO'].str.strip(' ').isin([prenom,prenom_no_space])) & (dsp_dat_df['DTNAISSINFO']==dt_naiss) ,:].copy()
+
             if match_df.shape[0] == 0:
-                self.no_match_df.loc[self.nb_no_match] = {'PID':pid}
+                self.no_match_df.loc[self.nb_no_match] =  {'NUMERO_SGIL':numero_sgil,'NOM':nom,'PRENOM':prenom,'DT_NAISS':dt_naiss,'DT_PRELEV':dt_prelev}
                 self.nb_no_match += 1
                 return match_df
 
@@ -615,6 +633,9 @@ class SGILdata_2_DSPdata_Matcher():
         except:
             pass
 
+    def WriteNoMatchToExcel(self):
+        self.excel_manager.WriteToExcel(self.no_match_df,"NoDSPPatientfound_versus_sgil.xlsx")
+
 class EnvoisGenomeQuebec_2_DSPdata_Matcher():
     def __init__(self,dsp_dat,excel_manager):
         self.dsp_dat = dsp_dat
@@ -635,7 +656,7 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
             match_df['MIN_DELTA'] = match_df[['DATE_DIFF_1','DATE_DIFF_2']].min(axis=1)
         except:
             pass
-       
+      
  
     def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,dsp_ch_code,use_ch):
        
