@@ -23,7 +23,7 @@ import logging
 import gc
 
 _use_ch_mapping = False
-_debug_ = True
+_debug_ = False
 
 pd.options.display.max_columns = 100
 logging.basicConfig(level=logging.DEBUG)
@@ -91,6 +91,14 @@ class CH_DSPtoLSPQ:
 
     def GetPandaDataFrame(self):
         return self.pd_df
+    
+    @staticmethod
+    def Get_CH_Sorel_Info():
+        code = 'HCLM'
+        name = 'Hôtel-Dieu de Sorel'
+        adresse = "400, avenue de l\'Hôtel-Dieu , Sorel-Tracy, QC, Canada"
+        return [code,name,adresse]
+
 
 class EnvoisGenomeQuebec:
     def __init__(self,excel_manager):
@@ -253,7 +261,7 @@ class MySQLcovid19:
         self.host = 'localhost'
         self.user = 'root'
         self.password = 'lspq2019'
-        self.database = 'TestCovid19v5'
+        self.database = 'TestCovid19v7'
         self.connection = self.SetConnection()
 
     def SetConnection(self):
@@ -341,7 +349,7 @@ class MySQLcovid19Updator:
                 logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(val_to_insert))
                 print(err)
 
-    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name,table,is_sgil):
+    def GetValuesToInsert(self,dsp_dat_match_rec,current_envoi,ch_name,table,is_sgil,ch_adresse):
         def GetVal(x):
             if isinstance(x,pd.Timestamp):
                 return str(x)
@@ -356,14 +364,15 @@ class MySQLcovid19Updator:
             return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['PRENOMINFO'],dsp_dat_match_rec['NOMINFO'],dsp_dat_match_rec['SEXEINFO'],dsp_dat_match_rec['DTNAISSINFO'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['RSS_LSPQ_CAS']))))
 
         elif table == 'Prelevements' and not is_sgil:
-            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO']))))
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO'],ch_adresse))))
 
         elif table == 'Prelevements' and  is_sgil:
-            #TODO METTRE NA POUR DATE ENVOI GENOME QUEBEC
-            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],'LSPQ','LSPQ',dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['SAMPLED_DATE'],current_envoi['NUMERO_SGIL'],dsp_dat_match_rec['ID_PHYLO']))))
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],'LSPQ',ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['SAMPLED_DATE'],current_envoi['NUMERO_SGIL'],dsp_dat_match_rec['ID_PHYLO'],ch_adresse))))
 
     def Insert(self,use_ch):
         logging.info("Begin insert")
+
+        ch_sorel_info = CH_DSPtoLSPQ.Get_CH_Sorel_Info()
 
         for index,row in self.envois_gq.GetPandaDataFrame().loc[:,].iterrows():
             is_ch_sorel = row['CODE_HOPITAL_LSPQ_IS_CH_SOREL']
@@ -371,20 +380,22 @@ class MySQLcovid19Updator:
             
             try:
 
-                if is_ch_sorel:
-                    ch_dsp_code = 'HCLM'
-                    ch_name = 'Hôtel-Dieu de Sorel'
+                if is_ch_sorel: 
+                    ch_dsp_code = ch_sorel_info[0]
+                    ch_name = ch_sorel_info[1]
+                    ch_adresse = ch_sorel_info[2] 
                 else:
                     ch_dsp_code = ch_dsp2lspq_val[0]
                     ch_name = ch_dsp2lspq_val[1]
+                    ch_adresse = ch_dsp2lspq_val[2]
 
                 dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code,use_ch)
 
                 if  dsp_dat_match_rec.shape[0] != 0:
-                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients',False)
+                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients',False,ch_adresse)
                     self.InsertPatient(val_to_insert)
 
-                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements',False)
+                    val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Prelevements',False,ch_adresse)
                     self.InsertPrelevement(val_to_insert,False)
 
                 else:
@@ -397,9 +408,9 @@ class MySQLcovid19Updator:
             try:
                 dsp_dat_match_rec = self.GetDSPmatchWithSGILdat(row['PID'],row['SAMPLED_DATE'],'LSPQ')
                 if dsp_dat_match_rec.shape[0] != 0:
-                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,'LSPQ','Patients',True)
+                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,row['CH_NAME'],'Patients',True,row['CH_ADRESS'])
                     self.InsertPatient(val_to_insert)
-                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,'LSPQ','Prelevements',True)
+                    val_to_insert =  self.GetValuesToInsert(dsp_dat_match_rec,row,row['CH_NAME'],'Prelevements',True,row['CH_ADRESS'])
                     self.InsertPrelevement(val_to_insert,True)
             except:
                 pass
@@ -556,7 +567,7 @@ class Utils:
 
             date_as_date = datetime.datetime.strptime(current_year + "-" + month + "-" + day,'%Y-%m-%d')
         except:
-            #print(sys.exc_info())
+            print(sys.exc_info())
             return None
 
         return date_as_date
@@ -684,7 +695,7 @@ class CH_DSP_2_LSPQ_Matcher():
 
     def GetChDspCode(self,lspq_ch_code):
         df = self.ch_dsp_2_lspq.GetPandaDataFrame()
-        res = df.loc[df['PrefixLSPQ'] == lspq_ch_code,['PrefixDSP','ETABLISSEMENTS']].values
+        res = df.loc[df['PrefixLSPQ'] == lspq_ch_code,['PrefixDSP','ETABLISSEMENTS','ADRESSE']].values
 
         if len(res) == 0:
             self.missing_match_df.loc[self.nb_missing_match] = lspq_ch_code
@@ -702,7 +713,8 @@ class CH_DSP_2_LSPQ_Matcher():
                 return []
             else:
                 ch_name = val[1]
-                return [dsp_ch_code,ch_name]
+                ch_adresse = val[2]
+                return [dsp_ch_code,ch_name,ch_adresse]
 
     def WriteProblematicLSPQchToExcel(self):
         self.excel_manager.WriteToExcel(self.missing_match_df,"LSPQ_CH_missing_match.xlsx")
@@ -742,13 +754,13 @@ class ExcelManager:
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_SJ.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_TESTSPACE.xlsx')
 
-            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200812_minimal_small.txt')
+            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_small.txt')
         else:
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_31072020.xlsm')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec.xlsx')
             self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_2020-07-22_CORR.xlsx')
-            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200812_minimal.txt')
+            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal.txt')
 
     def ReadDspDataFile(self):
         return pd.read_excel(self.dsp_data_file,sheet_name='BD_Phylogenie')
