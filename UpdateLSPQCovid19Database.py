@@ -10,6 +10,10 @@ Eric Fournier 2020-07-29
 """
 Update statut dans table Patients
 Ajout des metrics de sequences
+
+filter date de prelevement 1900 exemple HSCM-P8120611  dans table prelevement
+Integer Key pour ID_PATIENT
+faire recherche de Patient de BDphylo vers ListeEnvois au lieu de l inverse
 """
 
 import mysql.connector
@@ -23,7 +27,7 @@ import logging
 import gc
 
 _use_ch_mapping = False
-_debug_ = False
+_debug_ = True
 
 pd.options.display.max_columns = 100
 logging.basicConfig(level=logging.DEBUG)
@@ -46,6 +50,7 @@ class DSPdata:
         self.FillNA()
         self.CreateIdPatient()
         self.ToDateTime()
+
 
     def ToDateTime(self):
         #https://stackoverflow.com/questions/39604094/pandas-delete-all-rows-that-are-not-a-datetime-type
@@ -111,6 +116,7 @@ class EnvoisGenomeQuebec:
 
         self.RemoveWrongDateFormatRecord()
         self.SortByDatePrelev()
+
 
     def SortByDatePrelev(self):
         self.final_pd_df = self.final_pd_df.sort_values(by=['DATE_PRELEV'],ascending=True)
@@ -209,6 +215,7 @@ class SGILdata:
         self.RemoveWrongDateFormatRecord()
         self.SortByDatePrelev()
 
+
     def SortByDatePrelev(self):
         self.final_pd_df = self.final_pd_df.sort_values(by=['SAMPLED_DATE'],ascending=True)
 
@@ -261,7 +268,8 @@ class MySQLcovid19:
         self.host = 'localhost'
         self.user = 'root'
         self.password = 'lspq2019'
-        self.database = 'TestCovid19v7'
+        #self.database = 'TestCovid19v7'
+        self.database = 'TestCovid19_TEST'
         self.connection = self.SetConnection()
 
     def SetConnection(self):
@@ -304,6 +312,7 @@ class MySQLcovid19Updator:
 
     def SetPrelevementsColumnsAsString(self):
         columns_list =  MySQLcovid19Selector.GetPrelevementsColumn(self.db.GetCursor())
+        
         self.prelevements_columns_as_string = ','.join(columns_list[0])
         self.prelevements_columns_as_string_for_sgil_insert = ','.join(columns_list[1])
 
@@ -340,6 +349,7 @@ class MySQLcovid19Updator:
                     ncols = self.prelevements_columns_as_string_for_sgil_insert.count(",") + 1
                     sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.prelevements_columns_as_string_for_sgil_insert,str("%s,"*ncols)[:-1])
 
+
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_prelevements_inserted += 1
@@ -364,10 +374,10 @@ class MySQLcovid19Updator:
             return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['PRENOMINFO'],dsp_dat_match_rec['NOMINFO'],dsp_dat_match_rec['SEXEINFO'],dsp_dat_match_rec['DTNAISSINFO'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['RSS_LSPQ_CAS']))))
 
         elif table == 'Prelevements' and not is_sgil:
-            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO'],ch_adresse))))
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],current_envoi['CODE_HOPITAL_LSPQ'],ch_name,ch_adresse,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['DATE_PRELEV'],current_envoi['GENOME_QUEBEC_REQUETE'],current_envoi['DATE_ENVOI_GENOME_QUEBEC'],dsp_dat_match_rec['ID_PHYLO']))))
 
         elif table == 'Prelevements' and  is_sgil:
-            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],'LSPQ',ch_name,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['SAMPLED_DATE'],current_envoi['NUMERO_SGIL'],dsp_dat_match_rec['ID_PHYLO'],ch_adresse))))
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['CODE_HOPITAL_DSP'],'LSPQ',ch_name,ch_adresse,dsp_dat_match_rec['DATE_PRELEV_1'],dsp_dat_match_rec['DATE_CONF_LSPQ_1'],dsp_dat_match_rec['DATE_PRELEV_2'],dsp_dat_match_rec['DATE_CONF_LSPQ_2'],current_envoi['SAMPLED_DATE'],current_envoi['NUMERO_SGIL'],dsp_dat_match_rec['ID_PHYLO']))))
 
     def Insert(self,use_ch):
         logging.info("Begin insert")
@@ -759,7 +769,8 @@ class ExcelManager:
         self.ch_dsp2lspq_file = os.path.join(self.basedir_envois_genome_quebec,'PREFIX_CH_LSPQvsDSP.xlsx')
 
         if self._debug:
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small3.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HDS.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HPLG.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_SJ.xlsm')
@@ -767,7 +778,8 @@ class ExcelManager:
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_BADDATE.xlsm')
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_TESTSPACE.xlsm')
 
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small3.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nochmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
@@ -775,7 +787,8 @@ class ExcelManager:
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_SJ.xlsx')
             #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_TESTSPACE.xlsx')
 
-            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_small.txt')
+            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_small3.txt')
+            #self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_small.txt')
         else:
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_31072020.xlsm')
