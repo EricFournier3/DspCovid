@@ -27,7 +27,7 @@ import logging
 import gc
 
 _use_ch_mapping = False
-_debug_ = True
+_debug_ = False
 
 pd.options.display.max_columns = 100
 logging.basicConfig(level=logging.DEBUG)
@@ -141,7 +141,7 @@ class EnvoisGenomeQuebec:
             sys.stdout.write("Test row >>> %d\r"%tested_row)
             sys.stdout.flush()
 
-            if((Utils.CheckDateFormat(str(type(row['DTNAISSINFO'])))) and (Utils.CheckDateFormat(str(type(row['DATE_PRELEV'])))) and (Utils.CheckDateFormat(str(type(row['DATE_ENVOI_GENOME_QUEBEC']))))):
+            if((Utils.CheckDateFormat(str(type(row['DTNAISSINFO'])),row['DTNAISSINFO'],'DTNAISSINFO')) and (Utils.CheckDateFormat(str(type(row['DATE_PRELEV'])),row['DATE_PRELEV'],'DATE_PRELEV')) and (Utils.CheckDateFormat(str(type(row['DATE_ENVOI_GENOME_QUEBEC'])),row['DATE_ENVOI_GENOME_QUEBEC'],'DATE_ENVOI_GENOME_QUEBEC'))):
                 
                 self.final_pd_df.loc[index_good] = row
                 index_good += 1
@@ -165,7 +165,6 @@ class EnvoisGenomeQuebec:
                         self.pd_df_with_wrong_date_format.loc[index_bad] = row
                         index_bad += 1 
                         continue
-
                     row['DATE_PRELEV'] = dt_prelev
 
                 self.final_pd_df.loc[index_good] = row
@@ -237,7 +236,7 @@ class SGILdata:
             sys.stdout.write("Test row >>> %d\r"%tested_row)
             sys.stdout.flush()
 
-            if((Utils.CheckDateFormat(str(type(row['SAMPLED_DATE'])))) and (Utils.CheckDateFormat(str(type(row['DATE_NAISS']))))):
+            if((Utils.CheckDateFormat(str(type(row['SAMPLED_DATE'])),row['SAMPLED_DATE'],'SAMPLED_DATE')) and (Utils.CheckDateFormat(str(type(row['DATE_NAISS'])),row['DATE_NAISS'],'DATE_NAISS'))):
                 self.final_pd_df.loc[index_good] = row
                 index_good += 1
             else:
@@ -269,7 +268,7 @@ class MySQLcovid19:
         self.user = 'root'
         self.password = 'lspq2019'
         #self.database = 'TestCovid19v7'
-        self.database = 'TestCovid19_TEST'
+        self.database = 'TestCovid19_20200911'
         self.connection = self.SetConnection()
 
     def SetConnection(self):
@@ -303,8 +302,8 @@ class MySQLcovid19Updator:
     def GetChDspCode(self,lspq_ch_code):
         return self.ch_dsp2lspq_matcher.GetChDspCode(lspq_ch_code)
 
-    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch):
-        return self.envois_genome_quebec_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch)
+    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch,ch_lspq_code,ch_name):
+        return self.envois_genome_quebec_2_dsp_dat_matcher.GetDSPmatch(nom,prenom,dt_naiss,dt_prelev,ch_dsp_code,use_ch,ch_lspq_code,ch_name)
 
 
     def GetDSPmatchWithSGILdat(self,nom,prenom,dt_naiss,dt_prelev,ch,numero_sgil):
@@ -349,7 +348,8 @@ class MySQLcovid19Updator:
                     ncols = self.prelevements_columns_as_string_for_sgil_insert.count(",") + 1
                     sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.prelevements_columns_as_string_for_sgil_insert,str("%s,"*ncols)[:-1])
 
-
+                #print("SQL_INSERT ",sql_insert)
+                #print("VAL_TO_INSERT ", val_to_insert)
                 self.db.GetCursor().execute(sql_insert,val_to_insert)
                 self.db.Commit()
                 self.nb_prelevements_inserted += 1
@@ -399,7 +399,7 @@ class MySQLcovid19Updator:
                     ch_name = ch_dsp2lspq_val[1]
                     ch_adresse = ch_dsp2lspq_val[2]
 
-                dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code,use_ch)
+                dsp_dat_match_rec =  self.GetDSPmatch(row['NOMINFO'],row['PRENOMINFO'],row['DTNAISSINFO'],row['DATE_PRELEV'],ch_dsp_code,use_ch,row['CODE_HOPITAL_LSPQ'],ch_name)
 
                 if  dsp_dat_match_rec.shape[0] != 0:
                     val_to_insert = self.GetValuesToInsert(dsp_dat_match_rec,row,ch_name,'Patients',False,ch_adresse)
@@ -509,11 +509,18 @@ class Utils:
         pass
 
     @staticmethod
-    def CheckDateFormat(value):
+    def CheckDateFormat(value,mydate,column):
 
         ok = True
 
         if ((value == "<class 'datetime.datetime'>") or (value == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>")):
+            #print("TYPE IS ",value)
+            #print("MYDATE IS ",mydate)
+            #print("COLUMN IS ",column)
+            #print("YEAR IS ", mydate.year)
+
+            if(mydate.year > datetime.date.today().year):
+                ok = False
             pass
         else:
             ok = False
@@ -591,9 +598,14 @@ class Utils:
 
             date_as_date = datetime.datetime.strptime(current_year + "-" + month + "-" + day,'%Y-%m-%d')
         except:
-            print(sys.exc_info())
+            try:
+                date_as_date = datetime.datetime.strptime(str_date.strip(' '),'%Y-%m-%d')
+            except:
+                #print(sys.exc_info())
+                return None
+        
+        if(date_as_date.year > datetime.datetime.today().year):
             return None
-
         return date_as_date
 
 
@@ -650,7 +662,7 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
     def __init__(self,dsp_dat,excel_manager):
         self.dsp_dat = dsp_dat
         self.excel_manager = excel_manager
-        self.no_match_df = pd.DataFrame(columns=['NOMINFO','PRENOMINFO','DTNAISSINFO','CODE_HOPITAL_DSP'])
+        self.no_match_df = pd.DataFrame(columns=['NOMINFO','PRENOMINFO','DTNAISSINFO','CODE_HOPITAL_DSP','CODE_HOPITAL_LSPQ','NOM_HOPITAL'])
         self.duplicate_match_by_ch_df = pd.DataFrame(columns=['NOMINFO','PRENOMINFO','DTNAISSINFO','CODE_HOPITAL_DSP'])
 
         self.nb_no_match = 0
@@ -668,7 +680,7 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
             pass
       
  
-    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,dsp_ch_code,use_ch):
+    def GetDSPmatch(self,nom,prenom,dt_naiss,dt_prelev,dsp_ch_code,use_ch,lspq_ch_code,nom_hopital):
        
         try: 
             nom = nom.strip(' ')
@@ -677,7 +689,7 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
             prenom_no_space = re.sub(r' |-','',prenom)
             dsp_ch_code = dsp_ch_code.strip(' ')
         except:
-                self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code}
+                self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code,'CODE_HOPITAL_LSPQ':lspq_ch_code,'NOM_HOPITAL':nom_hopital}
                 self.nb_no_match += 1
                 return pd.DataFrame()
         
@@ -689,7 +701,7 @@ class EnvoisGenomeQuebec_2_DSPdata_Matcher():
                 match_df = dsp_dat_df.loc[(dsp_dat_df['NOMINFO'].str.strip(' ').isin([nom,nom_no_space])) & (dsp_dat_df['PRENOMINFO'].str.strip(' ').isin([prenom,prenom_no_space])) & (dsp_dat_df['DTNAISSINFO']==dt_naiss) ,:].copy()
 
             if match_df.shape[0] == 0:
-                self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code}
+                self.no_match_df.loc[self.nb_no_match] = {'NOMINFO':nom,'PRENOMINFO':prenom,'DTNAISSINFO':dt_naiss,'CODE_HOPITAL_DSP':dsp_ch_code,'CODE_HOPITAL_LSPQ':lspq_ch_code,'NOM_HOPITAL':nom_hopital}
                 self.nb_no_match += 1
                 return match_df
 
@@ -769,38 +781,24 @@ class ExcelManager:
         self.ch_dsp2lspq_file = os.path.join(self.basedir_envois_genome_quebec,'PREFIX_CH_LSPQvsDSP.xlsx')
 
         if self._debug:
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small3.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HDS.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_HPLG.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_SJ.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_DUPLICATE.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_BADDATE.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_small2_TESTSPACE.xlsm')
-
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small3.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nochmatch.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_nopatientmatch.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_withbaddate.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_HPLG.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_SJ.xlsx')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small_TESTSPACE.xlsx')
-
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_small4.xlsm')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small4.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_small4_BAD_DATE.xlsx')
             self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_small3.txt')
-            #self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_small.txt')
         else:
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie.xlsm')
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_31072020.xlsm')
-            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec.xlsx')
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_2020-07-22_CORR.xlsx')
-            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal.txt')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_DATE_CONF_LSPQ2.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_DATE_CONF_LSPQ2_FOR_FREEZE1_SUB.xlsm')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_2020-08-28CORR.xlsx')
+            #self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal.txt')
+            self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_corr_for_freeze1.txt')
 
     def ReadDspDataFile(self):
         return pd.read_excel(self.dsp_data_file,sheet_name='BD_Phylogenie')
 
     def ReadEnvoisGenomeQuebecFile(self):
-        return pd.read_excel(self.envois_genome_quebec_file,sheet_name='Feuil1')
+        #return pd.read_excel(self.envois_genome_quebec_file,sheet_name='Feuil1')
+        return pd.read_excel(self.envois_genome_quebec_file,sheet_name=0)
 
     def ReadChDSP2LSPQ(self):
         return pd.read_excel(self.ch_dsp2lspq_file,sheet_name='Feuil1')
