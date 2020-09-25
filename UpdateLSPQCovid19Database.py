@@ -62,7 +62,8 @@ class DSPdata:
         print("Nb lines in DSP  dat ",self.pd_df.shape[0])
 
     def CreateIdPatient(self):
-        self.pd_df['ID_PATIENT'] = self.pd_df['NOBENEF'].apply(str) + "-" + self.pd_df['NAM_LSPQ']
+        #Modif_20200924 Eric Fournier ajouter le ID_PHYLO
+        self.pd_df['ID_PATIENT'] = self.pd_df['NOBENEF'].apply(str) + "-" + self.pd_df['NAM_LSPQ'] + "-" + self.pd_df['ID_PHYLO'].str.replace("'",'')
         
     def FillNA(self):
         self.pd_df = pd.concat([self.pd_df[['NOBENEF','NAM_LSPQ']].fillna(''),self.pd_df[['SEXEINFO']].fillna('missing'),self.pd_df[['CODE_HOPITAL_DSP','NOMINFO','PRENOMINFO','DTNAISSINFO','DATE_PRELEV_1','DATE_CONF_LSPQ_1','DATE_CONF_LSPQ_2','DATE_PRELEV_2','ID_PHYLO']],self.pd_df[['STATUT']].fillna('missing'),self.pd_df[['RSS_LSPQ_CAS']].fillna('missing')],axis=1)
@@ -796,8 +797,8 @@ class ExcelManager:
             self.sgil_data_file = os.path.join(self.basedir_sgil_data,'extract_with_Covid19_extraction_v2_20200923_CovidPos_small.txt')
         else:
             #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908.xlsm')
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_DATE_CONF_LSPQ2.xlsm')
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_DATE_CONF_LSPQ2_FOR_FREEZE1_SUB.xlsm')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_DATE_CONF_LSPQ2.xlsm')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20200908_DATE_CONF_LSPQ2_FOR_FREEZE1_SUB.xlsm')
             self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'ListeEnvoisGenomeQuebec_2020-08-28CORR.xlsx')
             #self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal.txt')
             #self.sgil_data_file = os.path.join(self.basedir_sgil_data,'export_20200817_minimal_corr_for_freeze1.txt')
