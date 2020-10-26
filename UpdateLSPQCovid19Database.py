@@ -378,9 +378,11 @@ class MySQLcovid19Updator:
                 return str(x.values[0])
             else:
                 return x.values[0]
-
-        if table == 'Patients':
+        #Modif 2020-10-08
+        if table == 'Patients' and not is_sgil:
             return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['PRENOMINFO'],dsp_dat_match_rec['NOMINFO'],dsp_dat_match_rec['SEXEINFO'],dsp_dat_match_rec['DTNAISSINFO'],dsp_dat_match_rec['STATUT'],dsp_dat_match_rec['RSS_LSPQ_CAS']))))
+        elif table == 'Patients' and is_sgil:
+            return(tuple(map(GetVal,(dsp_dat_match_rec['ID_PATIENT'],dsp_dat_match_rec['PRENOMINFO'],dsp_dat_match_rec['NOMINFO'],dsp_dat_match_rec['SEXEINFO'],dsp_dat_match_rec['DTNAISSINFO'],dsp_dat_match_rec['STATUT'],current_envoi['RSS_PATIENT']))))
 
         elif table == 'Prelevements' and not is_sgil:
             #Modif_20200923 ajout des champs travel_history et ct

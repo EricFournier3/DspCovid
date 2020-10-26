@@ -140,7 +140,6 @@ class EnvoisGenomeQuebec:
         tested_row = 0
         for index, row in self.pd_df.loc[:,].iterrows():
             nam = row['NAM']
-
             tested_row += 1
             sys.stdout.write("Test row >>> %d\r"%tested_row)
             sys.stdout.flush()
@@ -151,10 +150,8 @@ class EnvoisGenomeQuebec:
                 index_good += 1
 
             elif isinstance(nam,str) or isinstance(row['DATE_PRELEV'],str):
-
                 if isinstance(nam,str):
                     dt_naiss = Utils.GetDateNaissFromNAM(nam)
-
                     if not dt_naiss:
                         self.pd_df_with_wrong_date_format.loc[index_bad] = row
                         index_bad += 1 
@@ -278,6 +275,7 @@ class MySQLcovid19:
         #self.database = 'TestCovid19_20200911'
         #self.database = 'TestCovid19_20200923'
         self.database = 'TestCovid19_20201014'
+        #self.database = 'smalltest_20201015'
         self.connection = self.SetConnection()
 
     def SetConnection(self):
@@ -566,9 +564,13 @@ class Utils:
             else:
                return None
 
-        if len(nam) == 12:
+        if len(nam) in [12,13]:
             try:
-                pattern_obj = re.compile(r'(\S{4})(\d{6})(\S{2})')
+                pattern_obj = None
+                if len(nam) == 12:
+                    pattern_obj = re.compile(r'(\S{4})(\d{6})(\S{2})')
+                else:
+                    pattern_obj = re.compile(r'(\S{4})(\d{6})(\S{3})')
                 search_obj = pattern_obj.search(nam)
                 name_info = search_obj.group(1)
                 dt_naiss = search_obj.group(2)
@@ -593,7 +595,8 @@ class Utils:
                     return None
 
             return None
-
+        else:
+            return None
     @staticmethod
     def GetDateFromStrDate(str_date):
 
@@ -792,7 +795,7 @@ class CH_DSP_2_LSPQ_Matcher():
 class ExcelManager:
     def __init__(self,_debug):
         self._debug = _debug
-        self.basedir = "/data/Databases/COVID19_DSP/"
+        self.basedir = "/data/Databases/CovBanQ_Epi/"
         self.basedir_dsp_data = os.path.join(self.basedir,"BD_PHYLOGENIE")
         self.basedir_envois_genome_quebec = os.path.join(self.basedir,"LISTE_ENVOIS_GENOME_QUEBEC")
         self.basedir_sgil_data = os.path.join(self.basedir,"SGIL_EXTRACT")
@@ -808,10 +811,11 @@ class ExcelManager:
 
         if self._debug:
             
-            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'PhyloSmall.xlsx')
-            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'EnvoiSmall2.xlsx')
+            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'PhyloSmall.xlsx')
+            #self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'EnvoiSmall2.xlsx')
+            self.envois_genome_quebec_file = os.path.join(self.basedir_envois_genome_quebec,'EnvoiSmall3.xlsx')
             self.sgil_data_file = os.path.join(self.basedir_sgil_data,'extract_with_Covid19_extraction_v2_20200923_CovidPos_small.txt')
-            self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20201007TEST.xlsx')
+            #self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20201007TEST.xlsx')
 
         else:
             self.dsp_data_file = os.path.join(self.basedir_dsp_data,'BD_phylogenie_20201007.xlsx')
