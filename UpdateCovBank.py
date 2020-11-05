@@ -27,6 +27,7 @@ import yaml # install de yaml avec la commande  sudo /data/Applications/Minicond
 global _debug_
 _debug_ = False
 
+
 class CovBankDB:
     def __init__(self,tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj):
         self.tsp_geo_obj = tsp_geo_obj
@@ -37,6 +38,9 @@ class CovBankDB:
         self.nomatch_tspGeo_envoisGenomeQc_df = pd.DataFrame(columns=['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM'])
         self.nb_nomatch_tspGeo_envoisGenomeQc = 0
         self.nomatch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/nomatch_tspGeo_envoisGenomeQc.xlsx"        
+
+        self.req_no_ch_code = set()
+        self.req_no_ch_code_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/rec_no_ch_code.xlsx"
 
         self.yaml_conn_param = open('CovBankParam.yaml')
         self.ReadConnParam()
@@ -215,6 +219,12 @@ class CovBankDB:
         ct = sgil_record['CT']
         return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct))))
 
+    def WriteReqNoChCodeToFile(self):
+        self.req_no_ch_code = list(self.req_no_ch_code)
+        req_no_ch_code_series =  pd.Series(self.req_no_ch_code,name="Req missing CH code")
+        req_no_ch_code_df = req_no_ch_code_series.to_frame()
+        req_no_ch_code_df.to_excel(self.req_no_ch_code_out,sheet_name='Sheet1') 
+
 
     def GetPrelevementToInsert(self,tsp_geo_match_df,envois_genome_qc,patient_id):
 
@@ -226,12 +236,20 @@ class CovBankDB:
         date_prelev = str(tsp_geo_match_df['date_prel'].values[0])
         genome_quebec_requete = envois_genome_qc['# Requête']
 
-        try:
-            code_hopital = re.search(r'(\S+)-\S+',genome_quebec_requete).group(1)
-            code_hopital = code_hopital + "-"
-        except:
-            logging.error("PROBLEM WITH THIS CH CODE " + str(genome_quebec_requete))
+        if not re.search(r'-',genome_quebec_requete):
+            self.req_no_ch_code.add(genome_quebec_requete)
             code_hopital = "NAN"
+        else:
+            try:
+                try:
+                    code_hopital = re.search(r'(\S+)-\S+-\S+',genome_quebec_requete).group(1)
+                except:
+                    code_hopital = re.search(r'(\S+)-\S+',genome_quebec_requete).group(1)
+
+                code_hopital = code_hopital + "-"
+            except:
+                logging.error("PROBLEM WITH THIS CH CODE " + str(genome_quebec_requete))
+                code_hopital = "NAN"
 
 
         if str(genome_quebec_requete[0:5]) == 'HDS-S':
@@ -329,7 +347,7 @@ class CovBankDB:
             match_df = tsp_geo_obj_pd_df.loc[tsp_geo_obj_pd_df['nam'] == nam,:].copy()
 
         if match_df.shape[0] == 0 :
-            match_df = tsp_geo_obj_pd_df.loc[(tsp_geo_obj_pd_df['nom'] == nom) & (tsp_geo_obj_pd_df['prenom'] == prenom) & (tsp_geo_obj_pd_df['date_nais'] == date_naiss) & (tsp_geo_obj_pd_df['date_prel'] == date_prelev),:].copy()
+            match_df = tsp_geo_obj_pd_df.loc[(tsp_geo_obj_pd_df['nom'] == nom) & (tsp_geo_obj_pd_df['prenom'] == prenom) & (tsp_geo_obj_pd_df['date_nais'] == date_naiss),:].copy()
 
         if match_df.shape[0] == 0 :
             self.nomatch_tspGeo_envoisGenomeQc_df.loc[self.nb_nomatch_tspGeo_envoisGenomeQc] = {'Nom':nom,'Prénom':prenom,'NAM':nam,'Date de naissance':date_naiss,'Date de prélèvement':date_prelev,'# Requête':req} # ['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM']
@@ -518,6 +536,7 @@ def Main():
     cov_bank_db = CovBankDB(tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj)
 
     cov_bank_db.Insert()
+    cov_bank_db.WriteReqNoChCodeToFile()
     cov_bank_db.WriteNoMatchTspGeoToEnvoisGenomeQcToFile()
     cov_bank_db.CloseConnection()
 
