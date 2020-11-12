@@ -1,0 +1,4 @@
+host: 'localhost'
+user: 'root'
+password: 'lspq2019'
+database: 'TestCovid19_tsp_geo'
