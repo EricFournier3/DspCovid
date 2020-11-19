@@ -39,6 +39,11 @@ class CovBankDB:
         self.nb_nomatch_tspGeo_envoisGenomeQc = 0
         self.nomatch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/nomatch_tspGeo_envoisGenomeQc.xlsx"        
 
+        self.multiplematch_tspGeo_envoisGenomeQc_df = pd.DataFrame(columns=['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM'])
+        self.nb_multiplematch_tspGeo_envoisGenomeQc = 0
+        self.multiplematch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/multiplematch_tspGeo_envoisGenomeQc.xlsx"
+
+
         self.req_no_ch_code = set()
         self.req_no_ch_code_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/rec_no_ch_code.xlsx"
 
@@ -233,7 +238,8 @@ class CovBankDB:
 
         patient_id = patient_id
         #code_hopital = str(envois_genome_qc['Hopital']) + "-"
-        date_prelev = str(tsp_geo_match_df['date_prel'].values[0])
+        #date_prelev = str(tsp_geo_match_df['date_prel'].values[0])
+        date_prelev = envois_genome_qc['Date de prélèvement']
         genome_quebec_requete = envois_genome_qc['# Requête']
 
         if not re.search(r'-',genome_quebec_requete):
@@ -327,6 +333,7 @@ class CovBankDB:
 
     def GetTspGeoMatchWithSgilData(self,nom,prenom,date_naiss,nam,date_prelev):
         match_df = pd.DataFrame()
+        return match_df
         tsp_geo_obj_pd_df = self.tsp_geo_obj.pd_df
 
         if(len(str(nam)) > 9):
@@ -353,10 +360,16 @@ class CovBankDB:
             self.nomatch_tspGeo_envoisGenomeQc_df.loc[self.nb_nomatch_tspGeo_envoisGenomeQc] = {'Nom':nom,'Prénom':prenom,'NAM':nam,'Date de naissance':date_naiss,'Date de prélèvement':date_prelev,'# Requête':req} # ['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM']
             self.nb_nomatch_tspGeo_envoisGenomeQc += 1 
             return match_df
+        elif  match_df.shape[0] > 1 :
+            self.multiplematch_tspGeo_envoisGenomeQc_df.loc[self.nb_multiplematch_tspGeo_envoisGenomeQc] = {'Nom':nom,'Prénom':prenom,'NAM':nam,'Date de naissance':date_naiss,'Date de prélèvement':date_prelev,'# Requête':req}
+            self.nb_multiplematch_tspGeo_envoisGenomeQc += 1
+            match_df = match_df[0:0]
+            return match_df
 
-        self.ComputeDatePrelevDiff(match_df,date_prelev)
+        return match_df
+        #self.ComputeDatePrelevDiff(match_df,date_prelev)
 
-        return(match_df[match_df.DATE_DIFF == match_df.DATE_DIFF.min()])
+        #return(match_df[match_df.DATE_DIFF == match_df.DATE_DIFF.min()])
 
     def ComputeDatePrelevDiff(self,match_df,date_prelev):
         match_df['DATE_DIFF'] = match_df['date_prel'] - date_prelev
@@ -364,6 +377,7 @@ class CovBankDB:
 
     def WriteNoMatchTspGeoToEnvoisGenomeQcToFile(self):
         self.nomatch_tspGeo_envoisGenomeQc_df.to_excel(self.nomatch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
+        self.multiplematch_tspGeo_envoisGenomeQc_df.to_excel(self.multiplematch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
 
 
     def ReadConnParam(self):
@@ -462,14 +476,16 @@ class TspGeoData:
         if _debug_:
             excel_data = "TSP_geo_20201014_small.xlsx"
         else:
-            excel_data = "TSP_geo_20201028.xlsx"
+            excel_data = "TSP_geo_20201111.xlsx"
         
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
 
     def Format(self):
-        self.pd_df['nom'] = self.pd_df['nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
-        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
+        #TODO SI MANQUE DATE NAISS ON PEUT L OBTENIR A PARTIR DU NAM
+        self.pd_df['nom'] = self.pd_df['nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','')
+        
+        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','')
         self.pd_df['nam'] = self.pd_df['nam'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
 
         self.pd_df['nom'] = self.pd_df['nom'].str.strip(' ')
@@ -486,7 +502,7 @@ class TspGeoData:
         self.pd_df['RSS'] =  self.pd_df['RSS_code'].astype(str) + "-" + self.pd_df['RSS_nom']  #TODO ATTENTION ici ca enleve le leading 0
         self.pd_df['RTA'] = self.pd_df['code_pos'].str.slice(0,3)
 
-        self.pd_df = self.pd_df.dropna(subset = ['date_prel'])
+        #self.pd_df = self.pd_df.dropna(subset = ['date_prel'])
 
 class EnvoisGenomeQuebecData:
     def __init__(self):
@@ -497,14 +513,14 @@ class EnvoisGenomeQuebecData:
         if _debug_:
             excel_data = "EnvoiSmall.xlsx"
         else:
-            excel_data = "ListeEnvoisGenomeQuebec_2020-10-29.xlsx"
+            excel_data = "ListeEnvoisGenomeQuebec_2020-11-06.xlsx"
 
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
 
     def Format(self):
-        self.pd_df['Nom'] = self.pd_df['Nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c')
-        self.pd_df['Prénom'] = self.pd_df['Prénom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c')
+        self.pd_df['Nom'] = self.pd_df['Nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace('-','').str.replace(' ','')
+        self.pd_df['Prénom'] = self.pd_df['Prénom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace('-','').str.replace(' ','')
         self.pd_df['NAM'] = self.pd_df['NAM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
         self.pd_df['# Requête'] = self.pd_df['# Requête'].str.replace(' ','')
 
@@ -521,8 +537,6 @@ class EnvoisGenomeQuebecData:
         self.pd_df['DateEnvoiGenomeQuebec'] = pd.to_datetime(self.pd_df['DateEnvoiGenomeQuebec'],format='%Y-%m-%d',errors='coerce')
 
         self.pd_df = self.pd_df.dropna(subset = ['Date de prélèvement'])
-
-
 
 
 def Main():
