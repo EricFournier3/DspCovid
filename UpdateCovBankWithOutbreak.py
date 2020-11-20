@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Eric Fournier 2020-10-28
+Eric Fournier 2020-11-19
 """
 
 
@@ -15,10 +15,6 @@ import sys
 import logging
 import gc
 import yaml 
-
-global _debug_
-_debug_ = True
-
 
 
 class CovBankDB:
@@ -74,14 +70,10 @@ class CovBankDB:
             date_prelev = row['SAMPLED_DATE']
 
             patient_record = self.GetPatientValToInsert(row)
-            #print(patient_record)
             patient_id = patient_record[0]
             patient_origrec = self.InsertPatient(patient_record)
-            print("PATIENT ID ", patient_id)
-            print("ORIGREC ",patient_origrec, "\n")
             if patient_origrec is not None:
                 prelevement_record = self.GetPrelevementToInsert(row,patient_id)
-                #print("PRELEV REC ", prelevement_record)
                 self.InsertPrelevement(prelevement_record)
             else:
                 logging.error("Impossible d inserer ce prelevement sgil")
@@ -112,8 +104,8 @@ class CovBankDB:
                 cursor.close()
                 self.Commit()
                 self.nb_prelevements_inserted += 1
-                #sys.stdout.write("Insert in Prelevement >>> %d\r"%self.nb_prelevements_inserted)
-                #sys.stdout.flush()
+                sys.stdout.write("Insert in Prelevement >>> %d\r"%self.nb_prelevements_inserted)
+                sys.stdout.flush()
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(prelevement_record))
                 print(err)
@@ -131,9 +123,7 @@ class CovBankDB:
         req = record['GENOME_QUEBEC_REQUETE']
         travel_history = record['TRAVEL_HISTORY']
         ct = record['CT']
-        #['ID_PATIENT','STATUT','CODE_HOPITAL_DSP','CODE_HOPITAL_LSPQ','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV_1_DSP','DATE_PRELEV_1_DSP','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT']
         return(tuple(map(GetVal,(patient_id,"Confirme",code_hopital,code_hopital,nom_hopital,adresse_hopital,date_prelev,date_prelev,req,travel_history,'99'))))
-
 
     def InsertPatient(self,patient_record):
         cursor = self.GetCursor()
@@ -153,9 +143,8 @@ class CovBankDB:
                 cursor.close()
                 self.Commit()
                 self.nb_patients_inserted += 1
-                #sys.stdout.write("Insert in Patient >>> %d\r"%self.nb_patients_inserted)
-                #sys.stdout.flush()
-                #print("PATIENT ORIGREC ",patient_origrec)
+                sys.stdout.write("Insert in Patient >>> %d\r"%self.nb_patients_inserted)
+                sys.stdout.flush()
                 return patient_origrec
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Patients avec le record " + str(patient_record))
@@ -175,7 +164,7 @@ class CovBankDB:
         try:
             cursor.execute(sql)
         except:
-            print("BUG : SQL IS ",sql)
+            print("BUG in CheckIfPatientExist : SQL IS ",sql)
 
         id_patient_tuple_list = cursor.fetchall()
         nb_patient = len(id_patient_tuple_list)
@@ -292,11 +281,7 @@ def Main():
     cov_bank_db = CovBankDB(outbreak_obj,hopital_list_obj)
 
     cov_bank_db.Insert()
-    #cov_bank_db.WriteReqNoChCodeToFile()
-    #cov_bank_db.WriteNoMatchTspGeoToEnvoisGenomeQcToFile()
-    #cov_bank_db.CloseConnection()
-
-    #hopital_list_obj.WriteMissingChCodeToFile()
+    cov_bank_db.CloseConnection()
 
 if __name__ == '__main__':
     Main()
