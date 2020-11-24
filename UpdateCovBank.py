@@ -5,13 +5,24 @@ Eric Fournier 2020-10-28
 
 
 TODO
-- ajouter les 0 pour les rss a un chiffre
+- ajouter les 0 pour les rss a un chiffre OK FAIT
 - differencier les 2 HDS    OK FAIT
 - date de naissance a partir du NAM pour les envois sans date de naissance
 - faire match avec NAM en premier
 - ajouter travel history
+- les noms de rss doivent matcher nextstrain OK FAIT
+- class Outbreak manager => champ eclosion et match entre id sgil et id genome center OK FAIT
+- option pour ajouter seulement SGIL DATA => plus rapide lorsque l on veut analyser des eclosion 
+- ajouter champ eclosion dans BD OK FAIT
+"""
 
 """
+Usage example
+
+python UpdateCovBank_Dev.py --debug --onlysgil
+
+"""
+
 
 import mysql.connector
 import datetime
@@ -23,9 +34,21 @@ import sys
 import logging
 import gc
 import yaml # install de yaml avec la commande  sudo /data/Applications/Miniconda/miniconda3/bin/python -m pip install pyyaml  le 2020-10-28
+import argparse
+
+
+parser = argparse.ArgumentParser(description="Update CovBank database")
+parser.add_argument('--debug',help="run in debug mode",action='store_true')
+parser.add_argument('--onlysgil',help="Use only sgil data",action='store_true')
+
+args = parser.parse_args()
 
 global _debug_
-_debug_ = False
+_debug_ = args.debug
+
+
+global _only_sgil_
+_only_sgil_ = args.onlysgil
 
 
 class CovBankDB:
@@ -53,7 +76,7 @@ class CovBankDB:
 
         self.patient_col_list = ['PRENOM','NOM','SEXE','DTNAISS','RSS','RTA','NAM']
         self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT']
-        self.prelevement_col_list_sgil = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT']
+        self.prelevement_col_list_sgil = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT','OUTBREAK','NUMERO_SGIL']
 
     def CloseConnection(self):
         self.GetConnection().close()
@@ -85,23 +108,26 @@ class CovBankDB:
         self.nb_patients_inserted = 0
         self.nb_prelevements_inserted = 0
 
-        for index, row in self.envois_genome_qc_obj.pd_df.loc[:,].iterrows():
-            nom = row['Nom']
-            prenom = row['Prénom']
-            date_naiss = row['Date de naissance']
-            date_prelev = row['Date de prélèvement']
-            req = row['# Requête']
-            nam = row['NAM']
-            tsp_geo_match_df = self.GetTspGeoMatch(nom,prenom,date_naiss,nam,date_prelev,req)
 
-            if tsp_geo_match_df.shape[0] != 0:
-                patient_record = self.GetPatientValToInsert(tsp_geo_match_df)
-                patient_id = self.InsertPatient(patient_record)
-                if patient_id is not None:
-                    prelevement_record = self.GetPrelevementToInsert(tsp_geo_match_df,row,patient_id)
-                    self.InsertPrelevement(prelevement_record,False)
-                else:
-                    logging.error("Impossible d inserer ce prelevement " + str(row))
+        if not _only_sgil_ :
+
+            for index, row in self.envois_genome_qc_obj.pd_df.loc[:,].iterrows():
+                nom = row['Nom']
+                prenom = row['Prénom']
+                date_naiss = row['Date de naissance']
+                date_prelev = row['Date de prélèvement']
+                req = row['# Requête']
+                nam = row['NAM']
+                tsp_geo_match_df = self.GetTspGeoMatch(nom,prenom,date_naiss,nam,date_prelev,req)
+
+                if tsp_geo_match_df.shape[0] != 0:
+                    patient_record = self.GetPatientValToInsert(tsp_geo_match_df)
+                    patient_id = self.InsertPatient(patient_record)
+                    if patient_id is not None:
+                        prelevement_record = self.GetPrelevementToInsert(tsp_geo_match_df,row,patient_id)
+                        self.InsertPrelevement(prelevement_record,False)
+                    else:
+                        logging.error("Impossible d inserer ce prelevement " + str(row))
 
         for index, row in self.sgil_obj.pd_df.loc[:,].iterrows():
             nom = row['NOM']
@@ -116,8 +142,7 @@ class CovBankDB:
             #print("SGIL PATIENT ID ", patient_id, "\n")
 
             if patient_id is not None:
-                prelevement_record = self.GetPrelevementToInsertFromSgilData(row,patient_id) #(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct)
-                #print(prelevement_record)
+                prelevement_record = self.GetPrelevementToInsertFromSgilData(row,patient_id) 
                 self.InsertPrelevement(prelevement_record,True)
             else:
                 logging.error("Impossible d inserer ce prelevement sgil")
@@ -222,11 +247,21 @@ class CovBankDB:
         sgil_folderno = sgil_record['NUMERO_SGIL']
         travel_history = sgil_record['TRAVEL_HISTORY']
         ct = sgil_record['CT']
-        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct))))
+
+        if str(sgil_record['NOM_ECLOSION']) == 'nan':
+            outbreak = 'NA'
+        else:
+            outbreak = sgil_record['NOM_ECLOSION']
+
+        if str(sgil_record['ID_SGIL']) == 'nan':
+            id_sgil = 'NA'
+        else:
+            id_sgil = sgil_record['ID_SGIL']
+        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct,outbreak,id_sgil))))
 
     def WriteReqNoChCodeToFile(self):
         self.req_no_ch_code = list(self.req_no_ch_code)
-        req_no_ch_code_series =  pd.Series(self.req_no_ch_code,name="Req missing CH code")
+        req_no_ch_code_series =  pd.Series(self.req_no_ch_code,name="Req missing CH code", dtype='object')
         req_no_ch_code_df = req_no_ch_code_series.to_frame()
         req_no_ch_code_df.to_excel(self.req_no_ch_code_out,sheet_name='Sheet1') 
 
@@ -430,23 +465,53 @@ class HopitalList:
         
     def WriteMissingChCodeToFile(self):
         self.missing_ch_code = list(self.missing_ch_code)
-        missing_ch_code_series = pd.Series(self.missing_ch_code,name="Missing CH code")
+        missing_ch_code_series = pd.Series(self.missing_ch_code,name="Missing CH code", dtype='object')
         missing_ch_code_df = missing_ch_code_series.to_frame()
         missing_ch_code_df.to_excel(self.missing_ch_code_out,sheet_name='Sheet1')
 
-class SGILdata:
+
+class OutbreakData:
     def __init__(self):
+        logging.info("In Outbreakdata")
+
+        self.base_dir = "/data/Databases/CovBanQ_Epi/SGIL_EXTRACT"
+        excel_data =  "AllOutbreaks_20201123.xlsx"
+
+        self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
+
+    def GetPdDf(self):
+        return self.pd_df
+
+class SGILdata:
+    def __init__(self,outbreak_obj):
         logging.info("In SGILdata")
 
         self.base_dir = "/data/Databases/CovBanQ_Epi/SGIL_EXTRACT/"
 
+        self.outbreak_obj = outbreak_obj
+
+
         if _debug_:
-            table_data = "extract_with_Covid19_extraction_v2_20200923_CovidPos_small.txt"
+            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
         else:
-            table_data = "extract_with_Covid19_extraction_v2_20200923_CovidPos.txt"
+            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos.txt"
 
         self.pd_df = pd.read_table(os.path.join(self.base_dir,table_data))
         self.Format()
+        self.MergeOutbreakData()
+
+    def MergeOutbreakData(self):
+        #self.pd_df_test = pd.merge(self.pd_df,self.outbreak_obj.GetPdDf(),left_on='NUMERO_SGIL',right_on='ID_SGIL',how='left')
+        #self.pd_df_test.loc[self.pd_df_test['ID_SGIL'].notnull(),['NUMERO_SGIL']] = self.pd_df_test['ID_GENOME_CENTER']
+        #print(self.pd_df_test.loc[self.pd_df_test['ID_SGIL'].notnull(),:])
+
+        #print(self.pd_df.loc[self.pd_df['NUMERO_SGIL'] == 'L00306413',:])
+        self.pd_df = pd.merge(self.pd_df,self.outbreak_obj.GetPdDf(),left_on='NUMERO_SGIL',right_on='ID_SGIL',how='left')
+        self.pd_df.loc[self.pd_df['ID_SGIL'].notnull(),['NUMERO_SGIL']] = self.pd_df['ID_GENOME_CENTER']
+        #print(self.pd_df.loc[self.pd_df['NUMERO_SGIL'] == 'S7033690',:])
+        #print(self.pd_df.loc[self.pd_df['ID_SGIL'].notnull(),:])
+
+
 
     def Format(self):
         self.pd_df['NOM'] = self.pd_df['NOM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
@@ -463,7 +528,9 @@ class SGILdata:
         self.pd_df['DATE_NAISS'] = pd.to_datetime(self.pd_df['DATE_NAISS'],format='%Y-%m-%d',errors='coerce')
         self.pd_df['SAMPLED_DATE'] = pd.to_datetime(self.pd_df['SAMPLED_DATE'],format='%Y-%m-%d',errors='coerce')
 
-        self.pd_df = self.pd_df.dropna(subset = ['SAMPLED_DATE'])
+        self.pd_df = self.pd_df.dropna(subset = ['SAMPLED_DATE','DATE_NAISS'])
+        self.pd_df['RSS_PATIENT'] = self.pd_df['RSS_PATIENT'].str.replace(r' – ',r'-').str.replace('é','e').str.replace('è','e').str.replace('ô','o').str.replace('î','i')
+
 
         self.pd_df = self.pd_df.sort_values(by=['SAMPLED_DATE'],ascending=True)
 
@@ -498,8 +565,13 @@ class TspGeoData:
 
         self.pd_df['date_nais'] = pd.to_datetime(self.pd_df['date_nais'],format='%Y%m%d',errors='coerce')
         self.pd_df['date_prel'] = pd.to_datetime(self.pd_df['date_prel'],format='%Y%m%d',errors='coerce')
+        
 
-        self.pd_df['RSS'] =  self.pd_df['RSS_code'].astype(str) + "-" + self.pd_df['RSS_nom']  #TODO ATTENTION ici ca enleve le leading 0
+        self.pd_df['RSS_code'] = self.pd_df['RSS_code'].astype(str)
+        self.pd_df['RSS_code'] = self.pd_df['RSS_code'].str.replace(r'(^\d+)\.0',r'\1',regex=True)
+        self.pd_df['RSS_code'] = self.pd_df['RSS_code'].str.replace(r'(^\d$)',r'0\1',regex=True)  # – -
+        self.pd_df['RSS'] =  self.pd_df['RSS_code'] + "-" + self.pd_df['RSS_nom']  #TODO ATTENTION ici ca enleve le leading 0
+        self.pd_df['RSS'] = self.pd_df['RSS'].str.replace(r' – ',r'-').str.replace('é','e').str.replace('è','e').str.replace('ô','o').str.replace('î','i')
         self.pd_df['RTA'] = self.pd_df['code_pos'].str.slice(0,3)
 
         #self.pd_df = self.pd_df.dropna(subset = ['date_prel'])
@@ -545,7 +617,8 @@ def Main():
     tsp_geo_obj = TspGeoData()
     envois_genome_qc_obj = EnvoisGenomeQuebecData() 
     hopital_list_obj = HopitalList()
-    sgil_obj = SGILdata()
+    outbreak_obj = OutbreakData()
+    sgil_obj = SGILdata(outbreak_obj)
 
     cov_bank_db = CovBankDB(tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj)
 
