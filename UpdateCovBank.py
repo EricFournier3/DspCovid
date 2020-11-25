@@ -14,6 +14,7 @@ TODO
 - class Outbreak manager => champ eclosion et match entre id sgil et id genome center OK FAIT
 - option pour ajouter seulement SGIL DATA => plus rapide lorsque l on veut analyser des eclosion 
 - ajouter champ eclosion dans BD OK FAIT
+- TRAVEL HISTORY
 """
 
 """
@@ -301,8 +302,8 @@ class CovBankDB:
             adresse_hopital = self.hopital_list_obj.GetHospitalAddress(code_hopital)
 
         date_envois_genome_quebec = envois_genome_qc['DateEnvoiGenomeQuebec']
-        travel_history = 'TRAVEL_HISTORY' # prendre de tsp_geo mais temporairement de sgil
-        ct = 'CT' # prendre de tsp_geo mais temporaire de sgil
+        travel_history = 'INDETERMINE' # prendre de tsp_geo mais temporairement de sgil
+        ct = '99' # prendre de tsp_geo mais temporaire de sgil
 
         return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct))))
         
