@@ -87,7 +87,7 @@ class CovBankDB:
         self.connection = self.SetConnection()
 
         self.patient_col_list = ['PRENOM','NOM','SEXE','DTNAISS','RSS','RTA','NAM']
-        self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT']
+        self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT','OUTBREAK']
         self.prelevement_col_list_sgil = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT','OUTBREAK','NUMERO_SGIL']
 
     def CloseConnection(self):
@@ -238,7 +238,17 @@ class CovBankDB:
             except mysql.connector.Error as err:
                 logging.error("Erreur d'insertion dans la table Prelevements avec le record " + str(prelevement_record))
                 print(err)
-
+        elif _mode_ == 'outbreak':
+            if is_sgil:
+                rec = dict(list(zip(self.prelevement_col_list_sgil,prelevement_record)))
+            else:
+                rec = dict(list(zip(self.prelevement_col_list,prelevement_record)))
+            
+            sql_update = "UPDATE Prelevements SET OUTBREAK = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(rec['OUTBREAK'],rec['GENOME_QUEBEC_REQUETE'])
+            cursor.execute(sql_update)
+            cursor.close()
+            self.Commit()
+             
 
     def InsertPatient(self,patient_record):
         cursor = self.GetCursor()
@@ -283,28 +293,13 @@ class CovBankDB:
         travel_history = sgil_record['TRAVEL_HISTORY']
         ct = sgil_record['CT']
 
-        print("HERE 1A")
-
         if _mode_ == 'outbreak':
-            print("HERE 1")
             outbreak = sgil_record['Outbreak']
         else:
             outbreak = 'NA'
 
         id_sgil = sgil_folderno
 
-        '''
-
-        if str(sgil_record['NOM_ECLOSION']) == 'nan':
-            outbreak = 'NA'
-        else:
-            outbreak = sgil_record['NOM_ECLOSION']
-
-        if str(sgil_record['ID_SGIL']) == 'nan':
-            id_sgil = 'NA'
-        else:
-            id_sgil = sgil_record['ID_SGIL']
-        '''
         return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct,outbreak,id_sgil))))
 
 
@@ -325,6 +320,11 @@ class CovBankDB:
         #date_prelev = str(tsp_geo_match_df['date_prel'].values[0])
         date_prelev = envois_genome_qc['Date de prélèvement']
         genome_quebec_requete = envois_genome_qc['# Requête']
+
+        if _mode_ == 'outbreak':
+            outbreak = envois_genome_qc['Outbreak']
+        else:
+            outbreak = 'NA'
 
         if not re.search(r'-',genome_quebec_requete):
             self.req_no_ch_code.add(genome_quebec_requete)
@@ -353,7 +353,7 @@ class CovBankDB:
         travel_history = 'INDETERMINE' # prendre de tsp_geo mais temporairement de sgil
         ct = '99' # prendre de tsp_geo mais temporaire de sgil
 
-        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct))))
+        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct,outbreak))))
         
 
     def GetSexLetterFromNumber(self,number):
@@ -709,8 +709,9 @@ class EnvoisGenomeQuebecData:
         self.base_dir = "/data/Databases/CovBanQ_Epi/LISTE_ENVOIS_GENOME_QUEBEC"
 
         if _debug_:
-            excel_data = "EnvoiSmall.xlsx"
-            #excel_data = "ListeEnvoisGenomeQuebec_2020-11-06TEST.xlsx"
+            #excel_data = "EnvoiSmall.xlsx"
+            excel_data = "EnvoiSmall_outbreak.xlsx"
+            
         else:
             excel_data = "ListeEnvoisGenomeQuebec_2020-11-06.xlsx"
 
