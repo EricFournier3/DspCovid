@@ -22,7 +22,7 @@ TODO
 """
 Usage example
 
-python UpdateCovBank_Dev.py --debug --onlysgil
+python UpdateCovBank_v2.py --debug --mode 'init'
 
 """
 
@@ -78,6 +78,9 @@ class CovBankDB:
         self.nb_multiplematch_tspGeo_envoisGenomeQc = 0
         self.multiplematch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/multiplematch_tspGeo_envoisGenomeQc.xlsx"
 
+        self.missing_old_outbreak_sample_id_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/missing_old_outbreak_sample_id.xlsx"
+        self.missing_new_outbreak_sample_id_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/missing_new_outbreak_sample_id.xlsx"
+
 
         self.req_no_ch_code = set()
         self.req_no_ch_code_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/rec_no_ch_code.xlsx"
@@ -121,18 +124,18 @@ class CovBankDB:
             outbreak = row['Outbreak']
             sample_id = row['SampleID']
             sql = "UPDATE Prelevements SET OUTBREAK = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(outbreak,sample_id)
-            print(sql)
+            #print(sql)
             cursor.execute(sql)
             nb_update = cursor.rowcount
-            print(nb_update, " ",type(nb_update))
+            #print(nb_update, " ",type(nb_update))
             if nb_update < 1:
                 sample_id_not_found.append(sample_id)
 
             cursor.close()
             self.Commit()
          
-        self.missing_outbreak_sample_id_df = self.outbreak_obj_v2.GetOldOutbreakDf().loc[self.outbreak_obj_v2.GetOldOutbreakDf()['SampleID'].isin(sample_id_not_found),:]
-        print(self.missing_outbreak_sample_id_df)
+        self.missing_old_outbreak_sample_id_df = self.outbreak_obj_v2.GetOldOutbreakDf().loc[self.outbreak_obj_v2.GetOldOutbreakDf()['SampleID'].isin(sample_id_not_found),:]
+        #print(self.missing_outbreak_sample_id_df)
             
 
     def Insert(self):
@@ -164,7 +167,8 @@ class CovBankDB:
 
         for index, row in self.sgil_obj.pd_df.loc[:,].iterrows():
             if _mode_ == 'outbreak':
-                print("OUTBREAK ",row['Outbreak']," ",row['NUMERO_SGIL'])
+                #print("OUTBREAK ",row['Outbreak']," ",row['NUMERO_SGIL'])
+                pass
             nom = row['NOM']
             prenom = row['PRENOM']
             date_naiss = row['DATE_NAISS']
@@ -218,6 +222,14 @@ class CovBankDB:
         elif nb_patient > 1:
             logging.error("Probleme : plus de un seul match Patients " + str(id_patient_tuple_list))
             return [True,None]
+
+    def SetMissingNewOutbreakSamples(self):
+        new_outbreak_df = self.outbreak_obj_v2.GetNewOutbreakDf()
+        new_outbreak_list = list(new_outbreak_df['SampleID'])
+        sql = "SELECT GENOME_QUEBEC_REQUETE from Prelevements where GENOME_QUEBEC_REQUETE in " + " %s" % str(tuple(new_outbreak_list))
+        outbreak_inserted_df = pd.read_sql(sql,con=self.GetConnection())
+        outbreak_inserted_df = outbreak_inserted_df.rename(columns={'GENOME_QUEBEC_REQUETE':'SampleID'})
+        self.missing_new_outbreak_sample_id_df = new_outbreak_df.loc[~new_outbreak_df['SampleID'].isin(list(outbreak_inserted_df['SampleID'])),:]
       
  
     def InsertPrelevement(self,prelevement_record,is_sgil):
@@ -463,6 +475,12 @@ class CovBankDB:
         self.nomatch_tspGeo_envoisGenomeQc_df.to_excel(self.nomatch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
         self.multiplematch_tspGeo_envoisGenomeQc_df.to_excel(self.multiplematch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
 
+    def WriteMissingOutBreakSample(self):
+        if _mode_ == 'init':
+            self.missing_old_outbreak_sample_id_df.to_excel(self.missing_old_outbreak_sample_id_out,sheet_name='Sheet1')
+        else:
+            self.missing_new_outbreak_sample_id_df.to_excel(self.missing_new_outbreak_sample_id_out,sheet_name='Sheet1')
+
 
     def ReadConnParam(self):
         param = yaml.load(self.yaml_conn_param,Loader=yaml.FullLoader)
@@ -606,10 +624,10 @@ class SGILdata:
         self.outbreak_obj_v2 = outbreak_obj_v2
 
         if _debug_:
-            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
+            #table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
             table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test_outbreak.txt"
         else:
-            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos.txt"
+            table_data = "extract_with_Covid19_extraction_v2_20201203_CovidPos.txt"
 
         self.pd_df = pd.read_table(os.path.join(self.base_dir,table_data))
         self.Format()
@@ -667,7 +685,7 @@ class TspGeoData:
             excel_data = "TSP_geo_20201014_small.xlsx"
             #excel_data = "TSP_geo_20201111.xlsx"
         else:
-            excel_data = "TSP_geo_20201111.xlsx"
+            excel_data = "TSP_geo_20201201.xlsx"
         
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
@@ -709,11 +727,11 @@ class EnvoisGenomeQuebecData:
         self.base_dir = "/data/Databases/CovBanQ_Epi/LISTE_ENVOIS_GENOME_QUEBEC"
 
         if _debug_:
-            #excel_data = "EnvoiSmall.xlsx"
-            excel_data = "EnvoiSmall_outbreak.xlsx"
+            excel_data = "EnvoiSmall.xlsx"
+            #excel_data = "EnvoiSmall_outbreak.xlsx"
             
         else:
-            excel_data = "ListeEnvoisGenomeQuebec_2020-11-06.xlsx"
+            excel_data = "ListeEnvoisGenomeQuebec_2020-12-02.xlsx"
 
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
@@ -766,10 +784,9 @@ def Main():
     if _mode_ == 'init':
         cov_bank_db.UpdateWithOldOutbreak()
     else:
-        pass
-        #cov_bank_db.SetMissingNewOutbreakSamples() TODO avec un sql dans la bd  tu fais un select et tu regrade le rowcount 
+        cov_bank_db.SetMissingNewOutbreakSamples() 
 
-    #TODO write missing outbreak sample  => si pas de match de outbreak vers liste envois et de liste envois vers tsp geo
+    cov_bank_db.WriteMissingOutBreakSample()
     cov_bank_db.WriteReqNoChCodeToFile()
     cov_bank_db.WriteNoMatchTspGeoToEnvoisGenomeQcToFile()
     cov_bank_db.CloseConnection()
