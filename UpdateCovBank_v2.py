@@ -40,6 +40,9 @@ import yaml # install de yaml avec la commande  sudo /data/Applications/Minicond
 import argparse
 import glob
 
+
+logging.basicConfig(level=logging.INFO)
+
 parser = argparse.ArgumentParser(description="Update CovBank database")
 parser.add_argument('--debug',help="run in debug mode",action='store_true')
 parser.add_argument('--onlysgil',help="Use only sgil data",action='store_true')
@@ -63,14 +66,16 @@ _mode_ = args.mode
 
 
 class CovBankDB:
-    def __init__(self,tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj,outbreak_obj_v2):
+    def __init__(self,tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj,outbreak_obj_v2,nomatch_envoisgq_tspgeo):
         self.tsp_geo_obj = tsp_geo_obj
         self.envois_genome_qc_obj = envois_genome_qc_obj
         self.hopital_list_obj = hopital_list_obj
         self.sgil_obj = sgil_obj
         self.outbreak_obj_v2 = outbreak_obj_v2
 
-        self.nomatch_tspGeo_envoisGenomeQc_df = pd.DataFrame(columns=['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM'])
+        self.nomatch_envoisgq_tspgeo = nomatch_envoisgq_tspgeo
+
+        #self.nomatch_tspGeo_envoisGenomeQc_df = pd.DataFrame(columns=['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM'])
         self.nb_nomatch_tspGeo_envoisGenomeQc = 0
         self.nomatch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/nomatch_tspGeo_envoisGenomeQc.xlsx"        
 
@@ -441,8 +446,32 @@ class CovBankDB:
 
         return match_df
         
-
     def GetTspGeoMatch(self,nom,prenom,date_naiss,nam,date_prelev,req):
+        match_df = pd.DataFrame()
+        tsp_geo_obj_pd_df = self.tsp_geo_obj.pd_df
+
+        if(len(str(nam)) > 9):
+            match_df = tsp_geo_obj_pd_df.loc[tsp_geo_obj_pd_df['nam'] == nam,:].copy()
+
+        if match_df.shape[0] == 0 :
+            match_df = tsp_geo_obj_pd_df.loc[(tsp_geo_obj_pd_df['nom'] == nom) & (tsp_geo_obj_pd_df['prenom'] == prenom) & (tsp_geo_obj_pd_df['date_nais'] == date_naiss),:].copy()
+
+        if match_df.shape[0] == 0 :
+            temp_df = pd.DataFrame({'Nom':[nom],'Prénom':[prenom],'NAM':[nam],'Date de naissance':[date_naiss],'Date de prélèvement':[date_prelev],'# Requête':[req]},columns = ['Nom','Prénom','NAM','Date de naissance','Date de prélèvement','# Requête'])
+            if self.nomatch_envoisgq_tspgeo.CheckIfNoMatchAlreadyInNoMatches(temp_df) > 0:
+                pass
+            else:
+                self.nomatch_envoisgq_tspgeo.nomatch_out_df = pd.concat([self.nomatch_envoisgq_tspgeo.nomatch_out_df,temp_df])
+            return match_df
+        elif match_df.shape[0] > 1 :
+            self.multiplematch_tspGeo_envoisGenomeQc_df.loc[self.nb_multiplematch_tspGeo_envoisGenomeQc] = {'Nom':nom,'Prénom':prenom,'NAM':nam,'Date de naissance':date_naiss,'Date de prélèvement':date_prelev,'# Requête':req}
+            self.nb_multiplematch_tspGeo_envoisGenomeQc += 1
+            match_df = match_df[0:0]
+            return match_df
+
+        return match_df
+
+    def GetTspGeoMatchOBSOLETE(self,nom,prenom,date_naiss,nam,date_prelev,req):
         match_df = pd.DataFrame()
         tsp_geo_obj_pd_df = self.tsp_geo_obj.pd_df
 
@@ -471,8 +500,8 @@ class CovBankDB:
         match_df['DATE_DIFF'] = match_df['date_prel'] - date_prelev
         match_df['DATE_DIFF'] = match_df['DATE_DIFF'].abs()
 
-    def WriteNoMatchTspGeoToEnvoisGenomeQcToFile(self):
-        self.nomatch_tspGeo_envoisGenomeQc_df.to_excel(self.nomatch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
+    def WriteMultipleMatchTspGeoToEnvoisGenomeQcToFile(self):
+        #self.nomatch_tspGeo_envoisGenomeQc_df.to_excel(self.nomatch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
         self.multiplematch_tspGeo_envoisGenomeQc_df.to_excel(self.multiplematch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
 
     def WriteMissingOutBreakSample(self):
@@ -624,8 +653,8 @@ class SGILdata:
         self.outbreak_obj_v2 = outbreak_obj_v2
 
         if _debug_:
-            #table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
-            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test_outbreak.txt"
+            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
+            #table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test_outbreak.txt"
         else:
             table_data = "extract_with_Covid19_extraction_v2_20201203_CovidPos.txt"
 
@@ -718,6 +747,41 @@ class TspGeoData:
 
         #self.pd_df = self.pd_df.dropna(subset = ['date_prel'])
 
+class NoMatchEnvoisGqTspGeo:
+    def __init__(self):
+        logging.info("In NoMatchEnvoisGqTspGeo")
+
+        self.base_dir_in = "/data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/IN/"
+        self.base_dir_out = "/data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/OUT/"
+
+        if _debug_:
+            nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201207_small.xlsx"
+        else: 
+            nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201207_small.xlsx"
+
+
+        self.nb_no_matches = 0
+
+        self.nomatch_in_df = pd.read_excel(os.path.join(self.base_dir_in,nomatch_in),sheet_name=0)
+        
+        yaml_conn_param = open('CovBankParam.yaml')
+        param = yaml.load(yaml_conn_param,Loader=yaml.FullLoader)
+        database = param['database']
+        
+        self.nomatch_out = os.path.join(self.base_dir_out,"nomatch_tspGeo_envoisGenomeQc_" + database + ".xlsx")
+
+        #self.nomatch_out_df = pd.DataFrame(columns=self.nomatch_in_df.columns)
+        self.nomatch_out_df = self.nomatch_in_df.copy()
+        #print(self.nomatch_out_df)
+
+    def WriteNewNoMatch(self):
+        self.nomatch_out_df.to_excel(self.nomatch_out,sheet_name='Sheet1')
+
+    def CheckIfNoMatchAlreadyInNoMatches(self,check_df):
+        merge_df = pd.merge(self.nomatch_in_df,check_df,how='inner',on = ['# Requête'])
+        #print(merge_df)
+        return(merge_df.shape[0])
+
 class EnvoisGenomeQuebecData:
     def __init__(self,outbreak_obj_v2):
         logging.info("In EnvoisGenomeQuebecData")
@@ -766,6 +830,7 @@ class EnvoisGenomeQuebecData:
 
         self.pd_df = merge_df
 
+
 def Main():
     logging.info("Begin update")
 
@@ -778,7 +843,9 @@ def Main():
     sgil_obj = SGILdata(outbreak_obj,outbreak_obj_v2)
     envois_genome_qc_obj = EnvoisGenomeQuebecData(outbreak_obj_v2) 
 
-    cov_bank_db = CovBankDB(tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj,outbreak_obj_v2)
+    nomatch_envoisgq_tspgeo = NoMatchEnvoisGqTspGeo()
+
+    cov_bank_db = CovBankDB(tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj,outbreak_obj_v2,nomatch_envoisgq_tspgeo)
 
     cov_bank_db.Insert()
     if _mode_ == 'init':
@@ -788,8 +855,12 @@ def Main():
 
     cov_bank_db.WriteMissingOutBreakSample()
     cov_bank_db.WriteReqNoChCodeToFile()
-    cov_bank_db.WriteNoMatchTspGeoToEnvoisGenomeQcToFile()
+    #cov_bank_db.WriteNoMatchTspGeoToEnvoisGenomeQcToFile()
+    
+    cov_bank_db.WriteMultipleMatchTspGeoToEnvoisGenomeQcToFile()
     cov_bank_db.CloseConnection()
+
+    nomatch_envoisgq_tspgeo.WriteNewNoMatch()
 
     hopital_list_obj.WriteMissingChCodeToFile()
 
