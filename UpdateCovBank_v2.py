@@ -714,7 +714,7 @@ class TspGeoData:
             excel_data = "TSP_geo_20201014_small.xlsx"
             #excel_data = "TSP_geo_20201111.xlsx"
         else:
-            excel_data = "TSP_geo_20201201.xlsx"
+            excel_data = "TSP_geo_20201206.xlsx"
         
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
@@ -722,8 +722,11 @@ class TspGeoData:
     def Format(self):
         #TODO SI MANQUE DATE NAISS ON PEUT L OBTENIR A PARTIR DU NAM
         self.pd_df['nom'] = self.pd_df['nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','')
+        self.pd_df['nom'] = self.pd_df['nom'].str.replace('É','E').str.replace('È','E').str.replace(',','')
         
         self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','')
+        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('É','E').str.replace('È','E').str.replace(',','')        
+
         self.pd_df['nam'] = self.pd_df['nam'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
 
         self.pd_df['nom'] = self.pd_df['nom'].str.strip(' ')
@@ -757,7 +760,7 @@ class NoMatchEnvoisGqTspGeo:
         if _debug_:
             nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201207_small.xlsx"
         else: 
-            nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201207_small.xlsx"
+            nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201204.xlsx"
 
 
         self.nb_no_matches = 0
@@ -816,6 +819,10 @@ class EnvoisGenomeQuebecData:
         self.pd_df['Nom'] = self.pd_df['Nom'].str.upper()
         self.pd_df['Prénom'] = self.pd_df['Prénom'].str.upper()
         self.pd_df['NAM'] = self.pd_df['NAM'].str.upper()
+        self.pd_df['NAM'] = self.pd_df['NAM'].str.replace(r'^0{1,}','')
+
+        self.pd_df['Nom'].str.replace('É','E').str.replace('È','E').str.replace(',','')
+        self.pd_df['Prénom'].str.replace('É','E').str.replace('È','E').str.replace(',','')
 
         self.pd_df['Date de naissance'] = pd.to_datetime(self.pd_df['Date de naissance'],format='%Y-%m-%d',errors='coerce')
         self.pd_df['Date de prélèvement'] = pd.to_datetime(self.pd_df['Date de prélèvement'],format='%Y-%m-%d',errors='coerce')
@@ -855,7 +862,6 @@ def Main():
 
     cov_bank_db.WriteMissingOutBreakSample()
     cov_bank_db.WriteReqNoChCodeToFile()
-    #cov_bank_db.WriteNoMatchTspGeoToEnvoisGenomeQcToFile()
     
     cov_bank_db.WriteMultipleMatchTspGeoToEnvoisGenomeQcToFile()
     cov_bank_db.CloseConnection()
