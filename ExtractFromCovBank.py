@@ -61,12 +61,17 @@ class CovBankDB:
         self.database = param['database']
 
     def SelectReinfectionPrelev(self):
+        self.nb_select = 0
         self.reinfection_prelev_df = pd.DataFrame()
+        self.reinfection_prelev_df_notfound = pd.DataFrame(columns=['NOM','PRENOM','NAM','DT_NAISS','RTA'])
 
         reinfection_df = self.reinfection_obj.GetReinfectionDf()
 
         for index, row in reinfection_df.loc[:,].iterrows():
             #print(row)
+            sys.stdout.write("select >>> %d\r"%self.nb_select)
+            sys.stdout.flush()
+
             nam = row['namLabo']
             nom = row['nomLabo']
             prenom = row['prenomLabo']
@@ -85,13 +90,17 @@ class CovBankDB:
             #DATE_ENVOI_GENOME_QUEBEC GENOME_QUEBEC_REQUETE CT DATE_PRELEV
 
             df = pd.read_sql(sql,con=self.GetConnection())
+            nb_found = df.shape[0]
+            if str(nb_found) == '0':
+                self.reinfection_prelev_df_notfound = pd.concat([self.reinfection_prelev_df_notfound,pd.DataFrame({'NOM':[nom],'PRENOM':[prenom],'NAM':[nam],'DT_NAISS':[dt_naiss]})])
+                pass
             #print(df)
             self.reinfection_prelev_df =  pd.concat([self.reinfection_prelev_df,df])
 
         #print(self.reinfection_prelev_df)
 
     def SaveReinfectionPrelev(self):
-        self.reinfection_obj.SaveReinfectionPrelev(self.reinfection_prelev_df)
+        self.reinfection_obj.SaveReinfectionPrelev(self.reinfection_prelev_df,self.reinfection_prelev_df_notfound)
 
 class Reinfection:
     def __init__(self):
@@ -101,6 +110,7 @@ class Reinfection:
             self.in_file = os.path.join(basedir_in,"BD_phylogenie_20201208.xlsx")
 
         self.outfile = os.path.join(basedir_out,"ReinfectionPrelev.xlsx")
+        self.outfile_notfound = os.path.join(basedir_out,"ReinfectionPrelevNotFound.xlsx")
 
         #self.SetPhyloDf()
         self.SetReinfectionDf()
@@ -124,8 +134,9 @@ class Reinfection:
 
         #print(self.reinfection_df)
 
-    def SaveReinfectionPrelev(self,df):
-        df.to_excel(self.outfile,sheet_name='Sheet1')
+    def SaveReinfectionPrelev(self,df_found,df_notfound):
+        df_found.to_excel(self.outfile,sheet_name='Sheet1')
+        df_notfound.to_excel(self.outfile_notfound,sheet_name='Sheet1')
 
     def MergeReinfectionToPhylo(self):
         self.merged_reinfection_phylo = pd.merge(self.reinfection_df,self.phylo_df,on='idPersonneUniq')
@@ -135,7 +146,7 @@ class Reinfection:
 
 
 def Main():
-    logging.info("Begin update")
+    logging.info("Begin select")
 
     reinfection_obj = Reinfection()
     
