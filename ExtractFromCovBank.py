@@ -22,7 +22,7 @@ import glob
 logging.basicConfig(level=logging.INFO)
 
 global _debug
-_debug = True
+_debug = False
 
 global basedir_in
 basedir_in =  "/data/Databases/CovBanQ_Epi/FOR_EXTRACTION/"
@@ -69,6 +69,7 @@ class CovBankDB:
 
         for index, row in reinfection_df.loc[:,].iterrows():
             #print(row)
+            self.nb_select += 1
             sys.stdout.write("select >>> %d\r"%self.nb_select)
             sys.stdout.flush()
 
