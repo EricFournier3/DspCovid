@@ -61,7 +61,7 @@ class CovBankDB:
         self.database = param['database']
 
     def SelectReinfectionPrelev(self):
-        self.reinfection_prelev_df = pd.DataFrame(columns= ['PRENOM','NOM','DTNAISS','RTA','NAM'])
+        self.reinfection_prelev_df = pd.DataFrame()
 
         reinfection_df = self.reinfection_obj.GetReinfectionDf()
 
@@ -77,10 +77,12 @@ class CovBankDB:
 
             #print('NAM: ',nam, 'nom: ',nom,' prenom: ',prenom,' dt_naiss: ',dt_naiss, ' RTA: ',rta)
             if len(str(nam)) > 8:
-                sql = "SELECT pa.ID_PATIENT,pa.PRENOM,pa.NOM,pa.DTNAISS,pa.RTA,pa.NAM from Patients pa WHERE pa.NAM = '{0}' ".format(nam)
+                sql = "SELECT pa.ID_PATIENT,pa.PRENOM,pa.NOM,pa.DTNAISS,pa.RTA,pa.NAM, pr.DATE_ENVOI_GENOME_QUEBEC, pr.GENOME_QUEBEC_REQUETE, pr.CT, pr.DATE_PRELEV from Patients pa inner join Prelevements pr on pa.ID_PATIENT = pr.ID_PATIENT WHERE pa.NAM = '{0}' ".format(nam)
             else:
-                sql = "SELECT ID_PATIENT,PRENOM,NOM,DTNAISS,RTA,NAM from Patients WHERE NOM = '{0}' and PRENOM = '{1}' and DTNAISS = '{2}' and RTA = '{3}' ".format(nom,prenom,dt_naiss,rta)  # PRENOM,NOM,DTNAISS,RTA,
-            print(sql)
+                sql = "SELECT pa.ID_PATIENT,pa.PRENOM,pa.NOM,pa.DTNAISS,pa.RTA,pa.NAM,pr.DATE_ENVOI_GENOME_QUEBEC, pr.GENOME_QUEBEC_REQUETE, pr.CT, pr.DATE_PRELEV from Patients pa inner join Prelevements pr on pa.ID_PATIENT = pr.ID_PATIENT   WHERE pa.NOM = '{0}' and pa.PRENOM = '{1}' and pa.DTNAISS = '{2}' and pa.RTA = '{3}' ".format(nom,prenom,dt_naiss,rta)
+            #print(sql)
+
+            #DATE_ENVOI_GENOME_QUEBEC GENOME_QUEBEC_REQUETE CT DATE_PRELEV
 
             df = pd.read_sql(sql,con=self.GetConnection())
             #print(df)
@@ -88,12 +90,17 @@ class CovBankDB:
 
         #print(self.reinfection_prelev_df)
 
+    def SaveReinfectionPrelev(self):
+        self.reinfection_obj.SaveReinfectionPrelev(self.reinfection_prelev_df)
+
 class Reinfection:
     def __init__(self):
         if _debug:
             self.in_file = os.path.join(basedir_in,"BD_phylogenie_20201208_small.xlsx")
         else:
             self.in_file = os.path.join(basedir_in,"BD_phylogenie_20201208.xlsx")
+
+        self.outfile = os.path.join(basedir_out,"ReinfectionPrelev.xlsx")
 
         #self.SetPhyloDf()
         self.SetReinfectionDf()
@@ -117,6 +124,9 @@ class Reinfection:
 
         #print(self.reinfection_df)
 
+    def SaveReinfectionPrelev(self,df):
+        df.to_excel(self.outfile,sheet_name='Sheet1')
+
     def MergeReinfectionToPhylo(self):
         self.merged_reinfection_phylo = pd.merge(self.reinfection_df,self.phylo_df,on='idPersonneUniq')
 
@@ -131,6 +141,7 @@ def Main():
     
     db_obj = CovBankDB(reinfection_obj)
     db_obj.SelectReinfectionPrelev()
+    db_obj.SaveReinfectionPrelev()
 
 if __name__ == '__main__':
     Main()
