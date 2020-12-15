@@ -17,6 +17,7 @@ TODO
 - TRAVEL HISTORY
 - POUR LES NUMERO SGIL METTRE L HOPITAL DE PRELEVEMENT. C est important pour GISAID SUBMISSION
 - plus besoin de outbreak_obj
+- utiliser le fichier no match fait par Marianne pour trouver les no match
 """
 
 """
