@@ -96,7 +96,7 @@ class CovBankDB:
         self.connection = self.SetConnection()
 
         self.patient_col_list = ['PRENOM','NOM','SEXE','DTNAISS','RSS','RTA','NAM']
-        self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT','OUTBREAK']
+        self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT','OUTBREAK','DEB_VOY1','FIN_VOY1','DEST_VOY1','DEB_VOY2','FIN_VOY2','DEST_VOY2','DEB_VOY3','FIN_VOY3','DEST_VOY3','DEB_VOY4','FIN_VOY4','DEST_VOY4','DEB_VOY5','FIN_VOY5','DEST_VOY5','DEB_VOY6','FIN_VOY6','DEST_VOY6','DEB_VOY7','FIN_VOY7','DEST_VOY7','DEB_VOY8','FIN_VOY8','DEST_VOY8','DEB_VOY9','FIN_VOY9','DEST_VOY9','DEB_VOY10','FIN_VOY10','DEST_VOY10','DEB_VOY11','FIN_VOY11','DEST_VOY11','DEB_VOY12','FIN_VOY12','DEST_VOY12','DEB_VOY13','FIN_VOY13','DEST_VOY13']
         self.prelevement_col_list_sgil = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT','OUTBREAK','NUMERO_SGIL']
 
     def CloseConnection(self):
@@ -247,6 +247,7 @@ class CovBankDB:
                 pass
                 ncols = len(prelevement_record)
                 sql_insert = "INSERT INTO Prelevements ({0}) values ({1})".format(self.GetPrelevementColumns(is_sgil),str("%s,"*ncols)[:-1])
+                #print(prelevement_record)
                 cursor.execute(sql_insert,prelevement_record)
                 cursor.close()
                 self.Commit()
@@ -339,6 +340,7 @@ class CovBankDB:
         date_prelev = envois_genome_qc['Date de prélèvement']
         genome_quebec_requete = envois_genome_qc['# Requête']
 
+
         if _mode_ == 'outbreak':
             outbreak = envois_genome_qc['Outbreak']
         else:
@@ -370,8 +372,47 @@ class CovBankDB:
         date_envois_genome_quebec = envois_genome_qc['DateEnvoiGenomeQuebec']
         travel_history = 'INDETERMINE' # prendre de tsp_geo mais temporairement de sgil
         ct = '99' # prendre de tsp_geo mais temporaire de sgil
+        deb_voy1 = str(list(tsp_geo_match_df['deb_voy1'])[0])
+        fin_voy1 = str(list(tsp_geo_match_df['fin_voy1'])[0])
+        dest_voy1 = str(list(tsp_geo_match_df['dest_voy1'])[0])
+        deb_voy2 = str(list(tsp_geo_match_df['deb_voy2'])[0])
+        fin_voy2 = str(list(tsp_geo_match_df['fin_voy2'])[0])
+        dest_voy2 = str(list(tsp_geo_match_df['dest_voy2'])[0])
+        deb_voy3 = str(list(tsp_geo_match_df['deb_voy3'])[0])
+        fin_voy3 = str(list(tsp_geo_match_df['fin_voy3'])[0])
+        dest_voy3 = str(list(tsp_geo_match_df['dest_voy3'])[0])
+        deb_voy4 = str(list(tsp_geo_match_df['deb_voy4'])[0])
+        fin_voy4 = str(list(tsp_geo_match_df['fin_voy4'])[0])
+        dest_voy4 = str(list(tsp_geo_match_df['dest_voy4'])[0])
+        deb_voy5 = str(list(tsp_geo_match_df['deb_voy5'])[0])
+        fin_voy5 = str(list(tsp_geo_match_df['fin_voy5'])[0])
+        dest_voy5 = str(list(tsp_geo_match_df['dest_voy5'])[0])
+        deb_voy6 = str(list(tsp_geo_match_df['deb_voy6'])[0])
+        fin_voy6 = str(list(tsp_geo_match_df['fin_voy6'])[0])
+        dest_voy6 = str(list(tsp_geo_match_df['dest_voy6'])[0])
+        deb_voy7 = str(list(tsp_geo_match_df['deb_voy7'])[0])
+        fin_voy7 = str(list(tsp_geo_match_df['fin_voy7'])[0])
+        dest_voy7 = str(list(tsp_geo_match_df['dest_voy7'])[0])
+        deb_voy8 = str(list(tsp_geo_match_df['deb_voy8'])[0])
+        fin_voy8 = str(list(tsp_geo_match_df['fin_voy8'])[0])
+        dest_voy8 = str(list(tsp_geo_match_df['dest_voy8'])[0])
+        deb_voy9 = str(list(tsp_geo_match_df['deb_voy9'])[0])
+        fin_voy9 = str(list(tsp_geo_match_df['fin_voy9'])[0])
+        dest_voy9 = str(list(tsp_geo_match_df['dest_voy9'])[0])
+        deb_voy10 = str(list(tsp_geo_match_df['deb_voy10'])[0])
+        fin_voy10 = str(list(tsp_geo_match_df['fin_voy10'])[0])
+        dest_voy10 = str(list(tsp_geo_match_df['dest_voy10'])[0])
+        deb_voy11 = str(list(tsp_geo_match_df['deb_voy11'])[0])
+        fin_voy11 = str(list(tsp_geo_match_df['fin_voy11'])[0])
+        dest_voy11 = str(list(tsp_geo_match_df['dest_voy11'])[0])
+        deb_voy12 = str(list(tsp_geo_match_df['deb_voy12'])[0])
+        fin_voy12 = str(list(tsp_geo_match_df['fin_voy12'])[0])
+        dest_voy12 = str(list(tsp_geo_match_df['dest_voy12'])[0])
+        deb_voy13 = str(list(tsp_geo_match_df['deb_voy13'])[0])
+        fin_voy13 = str(list(tsp_geo_match_df['fin_voy13'])[0])
+        dest_voy13 = str(list(tsp_geo_match_df['dest_voy13'])[0])
 
-        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct,outbreak))))
+        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct,outbreak,deb_voy1,fin_voy1,dest_voy1,deb_voy2,fin_voy2,dest_voy2,deb_voy3,fin_voy3,dest_voy3,deb_voy4,fin_voy4,dest_voy4,deb_voy5,fin_voy5,dest_voy5,deb_voy6,fin_voy6,dest_voy6,deb_voy7,fin_voy7,dest_voy7,deb_voy8,fin_voy8,dest_voy8,deb_voy9,fin_voy9,dest_voy9,deb_voy10,fin_voy10,dest_voy10,deb_voy11,fin_voy11,dest_voy11,deb_voy12,fin_voy12,dest_voy12,deb_voy13,fin_voy13,dest_voy13))))
         
 
     def GetSexLetterFromNumber(self,number):
