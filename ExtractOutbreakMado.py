@@ -22,7 +22,7 @@ import glob
 logging.basicConfig(level=logging.INFO)
 
 global _debug
-_debug = False
+_debug = True
 
 global basedir_in
 basedir_in =  "/data/Databases/CovBanQ_Epi/FOR_EXTRACTION/"
@@ -31,11 +31,12 @@ global basedir_out
 basedir_out =  "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/"
 
 class CovBankDB:
-    def __init__(self,outbreak_mado_obj):
+    def __init__(self,outbreak_mado_obj,envois_gq_nomatch_obj):
         self.yaml_conn_param = open('CovBankParam.yaml')
         self.ReadConnParam()
         self.connection = self.SetConnection()
         self.outbreak_mado_obj = outbreak_mado_obj
+        self.envois_gq_nomatch_obj = envois_gq_nomatch_obj
 
     def CloseConnection(self):
         self.GetConnection().close()
@@ -76,7 +77,7 @@ class CovBankDB:
             nam = str(row['NAM'])
             dt_naiss = row['DATE_NAISS']
 
-            #print('NOM ',nom, ' PRENOM ',prenom, ' NAM ',nam, 'DTNAISS ',dt_naiss)
+            #print('>>>>>>>>>>>>>>>>>>> ^^^^^^^^^^^^^^^^^^ NOM ',nom, ' PRENOM ',prenom, ' NAM ',nam, 'DTNAISS ',dt_naiss)
 
             sql = ""
 
@@ -89,13 +90,32 @@ class CovBankDB:
             nb_found = df.shape[0]
             #print(nb_found)
             if str(nb_found) == '0':
-                self.outbreak_mado_not_found_df = pd.concat([self.outbreak_mado_not_found_df,pd.DataFrame({'NOM':[nom],'PRENOM':prenom,'NAM':nam,'DATE_NAISS':dt_naiss})])
+                #print("FOUND NO")
+                df = self.FindInEnvoisGenomeQuebecNoMatch(nom,prenom,nam,dt_naiss)
+                if df.shape[0] == 0:
+                    self.outbreak_mado_not_found_df = pd.concat([self.outbreak_mado_not_found_df,pd.DataFrame({'NOM':[nom],'PRENOM':prenom,'NAM':nam,'DATE_NAISS':dt_naiss})])
 
             self.outbreak_mado_with_req_df = pd.concat([self.outbreak_mado_with_req_df,df])
+            #print(self.outbreak_mado_with_req_df)
 
     def SaveOutbreakMadoWithReq(self):
         self.outbreak_mado_obj.SaveOutbreakMadoWithReq(self.outbreak_mado_with_req_df,self.outbreak_mado_not_found_df)
         
+    def FindInEnvoisGenomeQuebecNoMatch(self,nom,prenom,nam,dt_naiss):
+        target_df = self.envois_gq_nomatch_obj.GetDf()
+        #match_df = target_df.loc[(target_df['Nom TSP_GEO'] == nom) & (target_df['Prenom TSP_GEO'] == prenom) & (target_df['Date de naissance TSP_GEO'] == dt_naiss) & (target_df['NAM TSP_GEO'] == nam),:]
+        dt_naiss = re.sub('-','',str(dt_naiss)[0:10])
+        match_df = target_df.loc[(target_df['Nom TSP_GEO'] == nom) & (target_df['Prenom TSP_GEO'] == prenom) & (target_df['Date de naissance TSP_GEO'] == dt_naiss),:]
+        #print(" >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> NOM ",nom,' PRENOM ',prenom, ' NAM ',nam, " dt naiss ",re.sub('-','',str(dt_naiss)[0:10]))
+        #print("MATCH DF ",match_df)
+        match_df = match_df[['Nom TSP_GEO','Prenom TSP_GEO','Date de naissance','NAM TSP_GEO','# Requête','Date de prélèvement']]
+        match_df = match_df.rename(columns={'Nom TSP_GEO':'NOM','Prenom TSP_GEO':'PRENOM','Date de naissance':'DTNAISS','NAM TSP_GEO':'NAM','# Requête':'GENOME_QUEBEC_REQUETE','Date de prélèvement':'DATE_PRELEV'})
+        match_df['ID_PATIENT'] = 'NA'
+        match_df['DATE_ENVOI_GENOME_QUEBEC'] = 'NA'
+        match_df['CT'] = '99'
+        match_df['RTA'] = 'NA'
+        return(match_df)
+
 
 class OutbreakMado:
     def __init__(self):
@@ -110,7 +130,6 @@ class OutbreakMado:
         self.SetOutbreakMadoDf()
 
     def SaveOutbreakMadoWithReq(self,df_found,df_notfound):
-        print("OUT >>>>>>>>>>>>> ",self.outfile)
         df_found.to_excel(self.outfile,sheet_name='Sheet1')
         df_notfound.to_excel(self.outfile_not_found,sheet_name = 'Sheet1')
 
@@ -123,13 +142,32 @@ class OutbreakMado:
     def GetDf(self):
         return(self.outbreak_mado_df)
 
+class EnvoisGenomeQuebecNoMatch:
+    def __init__(self):
+        self.envois_gq_nomatch_file = os.path.join(basedir_in,"nomatch_tspGeo_envoisGenomeQc_CovBank20201222.xlsx")
+        self.SetEnvoisGenomeQuebecNoMatchDf()
+
+    def SetEnvoisGenomeQuebecNoMatchDf(self):
+        self.envois_gq_nomatch_df = pd.read_excel(self.envois_gq_nomatch_file,shee_name='Sheet1')
+        self.envois_gq_nomatch_df = self.envois_gq_nomatch_df[['Nom TSP_GEO','Prenom TSP_GEO','Date de naissance TSP_GEO','NAM TSP_GEO','Nom','Prénom','Date de naissance','# Requête','Date de prélèvement']]
+        self.envois_gq_nomatch_df = self.envois_gq_nomatch_df.dropna(subset=['Date de naissance TSP_GEO'])
+        #print(self.envois_gq_nomatch_df)
+        self.envois_gq_nomatch_df['Nom TSP_GEO'] = self.envois_gq_nomatch_df['Nom TSP_GEO'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace('-','').str.replace(' ','').str.strip(' ').str.upper()
+        self.envois_gq_nomatch_df['Prenom TSP_GEO'] = self.envois_gq_nomatch_df['Prenom TSP_GEO'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace('-','').str.replace(' ','').str.strip(' ').str.upper()
+
+        self.envois_gq_nomatch_df['Date de naissance TSP_GEO'] = self.envois_gq_nomatch_df['Date de naissance TSP_GEO'].astype(str)
+
+    def GetDf(self):
+        return(self.envois_gq_nomatch_df)
 
 def Main():
     logging.info("Begin select")
 
     outbreak_mado_obj = OutbreakMado()
+    
+    envois_gq_nomatch_obj = EnvoisGenomeQuebecNoMatch()
 
-    db_obj = CovBankDB(outbreak_mado_obj)
+    db_obj = CovBankDB(outbreak_mado_obj,envois_gq_nomatch_obj)
     db_obj.SelectOutbreakMado()
     db_obj.SaveOutbreakMadoWithReq()
 
