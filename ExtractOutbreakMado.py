@@ -62,8 +62,40 @@ class CovBankDB:
     def SelectOutbreakMado(self):
         self.nb_select = 0
         self.outbreak_mado_with_req_df = pd.DataFrame()
-        self.outbreak_mado_not_found_df = pd.DataFrame(columns=self.outbreak_mado_obj.GetDf().columns)
-        print(self.outbreak_mado_not_found_df)
+        outbreak_mado_df = self.outbreak_mado_obj.GetDf()
+        self.outbreak_mado_not_found_df = pd.DataFrame(columns=outbreak_mado_df.columns)
+
+        for index, row in outbreak_mado_df.loc[:,].iterrows():
+            #print(row)
+            self.nb_select += 1
+            sys.stdout.write("select >>> %d\r"%self.nb_select)
+            sys.stdout.flush()
+
+            nom = row['NOM']
+            prenom = row['PRENOM']
+            nam = str(row['NAM'])
+            dt_naiss = row['DATE_NAISS']
+
+            #print('NOM ',nom, ' PRENOM ',prenom, ' NAM ',nam, 'DTNAISS ',dt_naiss)
+
+            sql = ""
+
+            if len(str(nam)) > 8:
+                sql = "SELECT pa.ID_PATIENT,pa.PRENOM,pa.NOM,pa.DTNAISS,pa.RTA,pa.NAM, pr.DATE_ENVOI_GENOME_QUEBEC, pr.GENOME_QUEBEC_REQUETE, pr.CT, pr.DATE_PRELEV from Patients pa inner join Prelevements pr on pa.ID_PATIENT = pr.ID_PATIENT WHERE pa.NAM = '{0}' ".format(nam)
+            else:
+                sql = "SELECT pa.ID_PATIENT,pa.PRENOM,pa.NOM,pa.DTNAISS,pa.RTA,pa.NAM,pr.DATE_ENVOI_GENOME_QUEBEC, pr.GENOME_QUEBEC_REQUETE, pr.CT, pr.DATE_PRELEV from Patients pa inner join Prelevements pr on pa.ID_PATIENT = pr.ID_PATIENT   WHERE pa.NOM = '{0}' and pa.PRENOM = '{1}' and pa.DTNAISS = '{2}' ".format(nom,prenom,dt_naiss)
+
+            df = pd.read_sql(sql,con=self.GetConnection())
+            nb_found = df.shape[0]
+            #print(nb_found)
+            if str(nb_found) == '0':
+                self.outbreak_mado_not_found_df = pd.concat([self.outbreak_mado_not_found_df,pd.DataFrame({'NOM':[nom],'PRENOM':prenom,'NAM':nam,'DATE_NAISS':dt_naiss})])
+
+            self.outbreak_mado_with_req_df = pd.concat([self.outbreak_mado_with_req_df,df])
+
+    def SaveOutbreakMadoWithReq(self):
+        self.outbreak_mado_obj.SaveOutbreakMadoWithReq(self.outbreak_mado_with_req_df,self.outbreak_mado_not_found_df)
+        
 
 class OutbreakMado:
     def __init__(self):
@@ -76,6 +108,11 @@ class OutbreakMado:
         self.outfile_not_found = os.path.join(basedir_out,"OutbreakMadoNotFound.xlsx")
 
         self.SetOutbreakMadoDf()
+
+    def SaveOutbreakMadoWithReq(self,df_found,df_notfound):
+        print("OUT >>>>>>>>>>>>> ",self.outfile)
+        df_found.to_excel(self.outfile,sheet_name='Sheet1')
+        df_notfound.to_excel(self.outfile_not_found,sheet_name = 'Sheet1')
 
     def SetOutbreakMadoDf(self):
         self.outbreak_mado_df = pd.read_excel(self.in_file,sheet_name='Feuil1')
@@ -94,7 +131,7 @@ def Main():
 
     db_obj = CovBankDB(outbreak_mado_obj)
     db_obj.SelectOutbreakMado()
-    #db_obj.SaveOutbreakMado()
+    db_obj.SaveOutbreakMadoWithReq()
 
 if __name__ == '__main__':
     Main()
