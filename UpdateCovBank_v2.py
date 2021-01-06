@@ -18,13 +18,17 @@ TODO
 - POUR LES NUMERO SGIL METTRE L HOPITAL DE PRELEVEMENT. C est important pour GISAID SUBMISSION
 - plus besoin de outbreak_obj
 - utiliser le fichier no match fait par Marianne pour trouver les no match
+- voir erreur Data too long for column 'DEST_VOY1' at row 1 dans README
 """
 
 """
 Usage example
 
-python UpdateCovBank_v2.py --debug --mode 'init'
+python UpdateCovBank_v2.py  --mode init  --gq ListeEnvoisGenomeQuebec_2020-12-14.xlsx --tsp TSP_geo_20201213.xlsx --mm nomatch_tspGeo_envoisGenomeQc_CovBank20201207.xlsx --sgil extract_with_Covid19_extraction_v2_20201221_CovidPos.txt
 
+Ne pas oublier de choisir la bonne db dans /data/Applications/GitScript/Dsp_Covid_MySql/CovBankParam.yaml
+En mode init, ne pas oublier de mettre a jour la liste de fichier eclosion dans /data/Databases/CovBanQ_Epi/OUTBREAK_OLD
+En mode outbreak, ne pas oublier de mettre a jour la liste de fichier eclosion dans /data/Databases/CovBanQ_Epi/OUTBREAK_NEW
 """
 
 
@@ -42,6 +46,7 @@ import argparse
 import glob
 
 
+
 logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser(description="Update CovBank database")
@@ -50,6 +55,10 @@ parser.add_argument('--onlysgil',help="Use only sgil data",action='store_true')
 parser.add_argument('--outbreak',help="Use only outbreak data",action='store_true')
 parser.add_argument('--mode',help='Execution mode',choices=['init','outbreak'],required=True)
 
+parser.add_argument('--gq',help='Nom du fichier liste des envois genome quebec qui se trouve dans /data/Databases/CovBanQ_Epi/LISTE_ENVOIS_GENOME_QUEBEC',required=True)
+parser.add_argument('--tsp',help='Nom du fichier tsp geo qui se trouve dans /data/Databases/CovBanQ_Epi/TSP_GEO',required=True)
+parser.add_argument('--mm',help='Nom du fichier mismatch qui se trouve dans /data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/IN',required=True)
+parser.add_argument('--sgil',help='Nom du fichier sgil extract qui se trouve dans /data/Databases/CovBanQ_Epi/SGIL_EXTRACT',required=True)
 
 args = parser.parse_args()
 
@@ -64,6 +73,25 @@ _outbreak_ = args.outbreak
 
 global mode
 _mode_ = args.mode
+
+global gq_in_file
+gq_in_file = args.gq
+
+global tsp_in_file
+tsp_in_file = args.tsp
+
+global mm_in_file
+mm_in_file = args.mm
+
+global sgil_in_file
+sgil_in_file = args.sgil 
+
+#print("GQ ",gq_in_file)
+#print("TSP ",tsp_in_file)
+#print("MM ",mm_in_file)
+#print("SGIL ",sgil_in_file)
+
+#exit(0)
 
 
 class CovBankDB:
@@ -609,6 +637,7 @@ class HopitalList:
 
 
 class OutbreakData:
+    #PLUS BESOIN DE CETTE CLASS
     def __init__(self):
         logging.info("In Outbreakdata")
 
@@ -698,7 +727,8 @@ class SGILdata:
             table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
             #table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test_outbreak.txt"
         else:
-            table_data = "extract_with_Covid19_extraction_v2_20201203_CovidPos.txt"
+            #table_data = "extract_with_Covid19_extraction_v2_20201203_CovidPos.txt"
+            table_data = sgil_in_file
 
         self.pd_df = pd.read_table(os.path.join(self.base_dir,table_data))
         self.Format()
@@ -756,7 +786,8 @@ class TspGeoData:
             excel_data = "TSP_geo_20201014_small.xlsx"
             #excel_data = "TSP_geo_20201111.xlsx"
         else:
-            excel_data = "TSP_geo_20201206.xlsx"
+            #excel_data = "TSP_geo_20201206.xlsx"
+            excel_data = tsp_in_file
         
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
@@ -802,7 +833,8 @@ class NoMatchEnvoisGqTspGeo:
         if _debug_:
             nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201207_small.xlsx"
         else: 
-            nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201204.xlsx"
+            #nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201204.xlsx"
+            nomatch_in = mm_in_file
 
 
         self.nb_no_matches = 0
@@ -840,7 +872,8 @@ class EnvoisGenomeQuebecData:
             #excel_data = "EnvoiSmall_outbreak.xlsx"
             
         else:
-            excel_data = "ListeEnvoisGenomeQuebec_2020-12-02.xlsx"
+            #excel_data = "ListeEnvoisGenomeQuebec_2020-12-02.xlsx"
+            excel_data = gq_in_file
 
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
         self.Format()
