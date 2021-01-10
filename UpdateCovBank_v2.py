@@ -5,20 +5,16 @@ Eric Fournier 2020-12-01
 
 
 TODO
-- ajouter les 0 pour les rss a un chiffre OK FAIT
-- differencier les 2 HDS    OK FAIT
 - date de naissance a partir du NAM pour les envois sans date de naissance
 - faire match avec NAM en premier
 - ajouter travel history
-- les noms de rss doivent matcher nextstrain OK FAIT
-- class Outbreak manager => champ eclosion et match entre id sgil et id genome center OK FAIT
-- option pour ajouter seulement SGIL DATA => plus rapide lorsque l on veut analyser des eclosion 
-- ajouter champ eclosion dans BD OK FAIT
 - TRAVEL HISTORY
 - POUR LES NUMERO SGIL METTRE L HOPITAL DE PRELEVEMENT. C est important pour GISAID SUBMISSION
 - plus besoin de outbreak_obj
 - utiliser le fichier no match fait par Marianne pour trouver les no match
-- voir erreur Data too long for column 'DEST_VOY1' at row 1 dans README
+- si pas de match pour numero eclosion faire contains
+- traiter les caractere speciaux de marianne nomatch
+- match avec nomatch
 """
 
 """
@@ -30,7 +26,6 @@ Ne pas oublier de choisir la bonne db dans /data/Applications/GitScript/Dsp_Covi
 En mode init, ne pas oublier de mettre a jour la liste de fichier eclosion dans /data/Databases/CovBanQ_Epi/OUTBREAK_OLD
 En mode outbreak, ne pas oublier de mettre a jour la liste de fichier eclosion dans /data/Databases/CovBanQ_Epi/OUTBREAK_NEW
 """
-
 
 import mysql.connector
 import datetime
@@ -45,16 +40,11 @@ import yaml # install de yaml avec la commande  sudo /data/Applications/Minicond
 import argparse
 import glob
 
-
-
 logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser(description="Update CovBank database")
 parser.add_argument('--debug',help="run in debug mode",action='store_true')
-parser.add_argument('--onlysgil',help="Use only sgil data",action='store_true')
-parser.add_argument('--outbreak',help="Use only outbreak data",action='store_true')
 parser.add_argument('--mode',help='Execution mode',choices=['init','outbreak'],required=True)
-
 parser.add_argument('--gq',help='Nom du fichier liste des envois genome quebec qui se trouve dans /data/Databases/CovBanQ_Epi/LISTE_ENVOIS_GENOME_QUEBEC',required=True)
 parser.add_argument('--tsp',help='Nom du fichier tsp geo qui se trouve dans /data/Databases/CovBanQ_Epi/TSP_GEO',required=True)
 parser.add_argument('--mm',help='Nom du fichier mismatch qui se trouve dans /data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/IN',required=True)
@@ -64,12 +54,6 @@ args = parser.parse_args()
 
 global _debug_
 _debug_ = args.debug
-
-global _only_sgil_
-_only_sgil_ = args.onlysgil
-
-global _outbreak_
-_outbreak_ = args.outbreak
 
 global mode
 _mode_ = args.mode
@@ -104,20 +88,23 @@ class CovBankDB:
 
         self.nomatch_envoisgq_tspgeo = nomatch_envoisgq_tspgeo
 
-        #self.nomatch_tspGeo_envoisGenomeQc_df = pd.DataFrame(columns=['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM'])
         self.nb_nomatch_tspGeo_envoisGenomeQc = 0
-        self.nomatch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/nomatch_tspGeo_envoisGenomeQc.xlsx"        
 
         self.multiplematch_tspGeo_envoisGenomeQc_df = pd.DataFrame(columns=['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM'])
         self.nb_multiplematch_tspGeo_envoisGenomeQc = 0
-        self.multiplematch_tspGeo_envoisGenomeQc_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/multiplematch_tspGeo_envoisGenomeQc.xlsx"
+        
+        if not  _debug_:
+            self.base_dir_scriptout = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/"
+        else:
+            self.base_dir_scriptout = "/data/Databases/CovBanQ_Epi/DEBUG/"
 
-        self.missing_old_outbreak_sample_id_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/missing_old_outbreak_sample_id.xlsx"
-        self.missing_new_outbreak_sample_id_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/missing_new_outbreak_sample_id.xlsx"
-
+        self.multiplematch_tspGeo_envoisGenomeQc_out = os.path.join(self.base_dir_scriptout,"multiplematch_tspGeo_envoisGenomeQc.xlsx")
+        self.req_no_ch_code_out = os.path.join(self.base_dir_scriptout,"rec_no_ch_code.xlsx")
+        self.nomatch_tspGeo_envoisGenomeQc_out = os.path.join(self.base_dir_scriptout,"nomatch_tspGeo_envoisGenomeQc.xlsx")        
+        self.missing_old_outbreak_sample_id_out = os.path.join(self.base_dir_scriptout,"missing_old_outbreak_sample_id.xlsx")
+        self.missing_new_outbreak_sample_id_out = os.path.join(self.base_dir_scriptout,"missing_new_outbreak_sample_id.xlsx")
 
         self.req_no_ch_code = set()
-        self.req_no_ch_code_out = "/data/Databases/CovBanQ_Epi/SCRIPT_OUT/rec_no_ch_code.xlsx"
 
         self.yaml_conn_param = open('CovBankParam.yaml')
         self.ReadConnParam()
@@ -151,12 +138,24 @@ class CovBankDB:
         else:
             return ','.join(self.prelevement_col_list)
 
+    def UpdateGenomeQuebecRequete(self):
+        for index,row in self.outbreak_obj_v2.GetNewOutbreakDf().loc[:,].iterrows():
+            cursor = self.GetCursor()
+            outbreak = row['Outbreak']
+            covbank_id = row['COVBANK']
+            biobank_id = row['BIOBANK']
+            sql = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,covbank_id)
+            cursor.execute(sql)
+            nb_update = cursor.rowcount
+            cursor.close()
+            self.Commit()
+                
     def UpdateWithOldOutbreak(self):
         sample_id_not_found = []
         for index,row in self.outbreak_obj_v2.GetOldOutbreakDf().loc[:,].iterrows():
             cursor = self.GetCursor()
             outbreak = row['Outbreak']
-            sample_id = row['SampleID']
+            sample_id = row['COVBANK']
             sql = "UPDATE Prelevements SET OUTBREAK = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(outbreak,sample_id)
             #print(sql)
             cursor.execute(sql)
@@ -164,44 +163,42 @@ class CovBankDB:
             #print(nb_update, " ",type(nb_update))
             if nb_update < 1:
                 sample_id_not_found.append(sample_id)
+            else:
+                biobank_id = row['BIOBANK']
+                sql2 = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,sample_id)
+                cursor.execute(sql2)
 
             cursor.close()
             self.Commit()
          
-        self.missing_old_outbreak_sample_id_df = self.outbreak_obj_v2.GetOldOutbreakDf().loc[self.outbreak_obj_v2.GetOldOutbreakDf()['SampleID'].isin(sample_id_not_found),:]
-        #print(self.missing_outbreak_sample_id_df)
+        self.missing_old_outbreak_sample_id_df = self.outbreak_obj_v2.GetOldOutbreakDf().loc[self.outbreak_obj_v2.GetOldOutbreakDf()['COVBANK'].isin(sample_id_not_found),:]
             
-
     def Insert(self):
         logging.info("Begin insert")
 
         self.nb_patients_inserted = 0
         self.nb_prelevements_inserted = 0
 
+        for index, row in self.envois_genome_qc_obj.pd_df.loc[:,].iterrows():
+            nom = row['Nom']
+            prenom = row['Prénom']
+            date_naiss = row['Date de naissance']
+            date_prelev = row['Date de prélèvement']
+            req = row['# Requête']
+            nam = row['NAM']
+            tsp_geo_match_df = self.GetTspGeoMatch(nom,prenom,date_naiss,nam,date_prelev,req)
 
-        if not _only_sgil_ :
-
-            for index, row in self.envois_genome_qc_obj.pd_df.loc[:,].iterrows():
-                nom = row['Nom']
-                prenom = row['Prénom']
-                date_naiss = row['Date de naissance']
-                date_prelev = row['Date de prélèvement']
-                req = row['# Requête']
-                nam = row['NAM']
-                tsp_geo_match_df = self.GetTspGeoMatch(nom,prenom,date_naiss,nam,date_prelev,req)
-
-                if tsp_geo_match_df.shape[0] != 0:
-                    patient_record = self.GetPatientValToInsert(tsp_geo_match_df)
-                    patient_id = self.InsertPatient(patient_record)
-                    if patient_id is not None:
-                        prelevement_record = self.GetPrelevementToInsert(tsp_geo_match_df,row,patient_id)
-                        self.InsertPrelevement(prelevement_record,False)
-                    else:
-                        logging.error("Impossible d inserer ce prelevement " + str(row))
+            if tsp_geo_match_df.shape[0] != 0:
+                patient_record = self.GetPatientValToInsert(tsp_geo_match_df)
+                patient_id = self.InsertPatient(patient_record)
+                if patient_id is not None:
+                    prelevement_record = self.GetPrelevementToInsert(tsp_geo_match_df,row,patient_id)
+                    self.InsertPrelevement(prelevement_record,False)
+                else:
+                    logging.error("Impossible d inserer ce prelevement " + str(row))
 
         for index, row in self.sgil_obj.pd_df.loc[:,].iterrows():
             if _mode_ == 'outbreak':
-                #print("OUTBREAK ",row['Outbreak']," ",row['NUMERO_SGIL'])
                 pass
             nom = row['NOM']
             prenom = row['PRENOM']
@@ -212,7 +209,6 @@ class CovBankDB:
 
             patient_record = self.GetPatientValToInsertFromSgilData(tsp_geo_match_df,row)
             patient_id = self.InsertPatient(patient_record)
-            #print("SGIL PATIENT ID ", patient_id, "\n")
 
             if patient_id is not None:
                 prelevement_record = self.GetPrelevementToInsertFromSgilData(row,patient_id) 
@@ -220,7 +216,6 @@ class CovBankDB:
             else:
                 logging.error("Impossible d inserer ce prelevement sgil")
             
-
     def CheckIfPrelevementExist(self,prelevement_record,cursor,is_sgil):
         if is_sgil:
             rec = dict(list(zip(self.prelevement_col_list_sgil,prelevement_record)))
@@ -259,13 +254,12 @@ class CovBankDB:
 
     def SetMissingNewOutbreakSamples(self):
         new_outbreak_df = self.outbreak_obj_v2.GetNewOutbreakDf()
-        new_outbreak_list = list(new_outbreak_df['SampleID'])
+        new_outbreak_list = list(new_outbreak_df['BIOBANK'])
         sql = "SELECT GENOME_QUEBEC_REQUETE from Prelevements where GENOME_QUEBEC_REQUETE in " + " %s" % str(tuple(new_outbreak_list))
         outbreak_inserted_df = pd.read_sql(sql,con=self.GetConnection())
-        outbreak_inserted_df = outbreak_inserted_df.rename(columns={'GENOME_QUEBEC_REQUETE':'SampleID'})
-        self.missing_new_outbreak_sample_id_df = new_outbreak_df.loc[~new_outbreak_df['SampleID'].isin(list(outbreak_inserted_df['SampleID'])),:]
+        outbreak_inserted_df = outbreak_inserted_df.rename(columns={'GENOME_QUEBEC_REQUETE':'BIOBANK'})
+        self.missing_new_outbreak_sample_id_df = new_outbreak_df.loc[~new_outbreak_df['BIOBANK'].isin(list(outbreak_inserted_df['BIOBANK'])),:]
       
- 
     def InsertPrelevement(self,prelevement_record,is_sgil):
         cursor = self.GetCursor()
         exist = self.CheckIfPrelevementExist(prelevement_record,cursor,is_sgil)
@@ -296,7 +290,6 @@ class CovBankDB:
             cursor.close()
             self.Commit()
              
-
     def InsertPatient(self,patient_record):
         cursor = self.GetCursor()
         exist_list = self.CheckIfPatientExist(patient_record,cursor)
@@ -541,37 +534,12 @@ class CovBankDB:
 
         return match_df
 
-    def GetTspGeoMatchOBSOLETE(self,nom,prenom,date_naiss,nam,date_prelev,req):
-        match_df = pd.DataFrame()
-        tsp_geo_obj_pd_df = self.tsp_geo_obj.pd_df
-
-        if(len(str(nam)) > 9):
-            match_df = tsp_geo_obj_pd_df.loc[tsp_geo_obj_pd_df['nam'] == nam,:].copy()
-
-        if match_df.shape[0] == 0 :
-            match_df = tsp_geo_obj_pd_df.loc[(tsp_geo_obj_pd_df['nom'] == nom) & (tsp_geo_obj_pd_df['prenom'] == prenom) & (tsp_geo_obj_pd_df['date_nais'] == date_naiss),:].copy()
-
-        if match_df.shape[0] == 0 :
-            self.nomatch_tspGeo_envoisGenomeQc_df.loc[self.nb_nomatch_tspGeo_envoisGenomeQc] = {'Nom':nom,'Prénom':prenom,'NAM':nam,'Date de naissance':date_naiss,'Date de prélèvement':date_prelev,'# Requête':req} # ['Nom','Prénom','# Requête','Date de naissance','Date de prélèvement','NAM']
-            self.nb_nomatch_tspGeo_envoisGenomeQc += 1 
-            return match_df
-        elif  match_df.shape[0] > 1 :
-            self.multiplematch_tspGeo_envoisGenomeQc_df.loc[self.nb_multiplematch_tspGeo_envoisGenomeQc] = {'Nom':nom,'Prénom':prenom,'NAM':nam,'Date de naissance':date_naiss,'Date de prélèvement':date_prelev,'# Requête':req}
-            self.nb_multiplematch_tspGeo_envoisGenomeQc += 1
-            match_df = match_df[0:0]
-            return match_df
-
-        return match_df
-        #self.ComputeDatePrelevDiff(match_df,date_prelev)
-
-        #return(match_df[match_df.DATE_DIFF == match_df.DATE_DIFF.min()])
 
     def ComputeDatePrelevDiff(self,match_df,date_prelev):
         match_df['DATE_DIFF'] = match_df['date_prel'] - date_prelev
         match_df['DATE_DIFF'] = match_df['DATE_DIFF'].abs()
 
     def WriteMultipleMatchTspGeoToEnvoisGenomeQcToFile(self):
-        #self.nomatch_tspGeo_envoisGenomeQc_df.to_excel(self.nomatch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
         self.multiplematch_tspGeo_envoisGenomeQc_df.to_excel(self.multiplematch_tspGeo_envoisGenomeQc_out,sheet_name='Sheet1')
 
     def WriteMissingOutBreakSample(self):
@@ -579,7 +547,6 @@ class CovBankDB:
             self.missing_old_outbreak_sample_id_df.to_excel(self.missing_old_outbreak_sample_id_out,sheet_name='Sheet1')
         else:
             self.missing_new_outbreak_sample_id_df.to_excel(self.missing_new_outbreak_sample_id_out,sheet_name='Sheet1')
-
 
     def ReadConnParam(self):
         param = yaml.load(self.yaml_conn_param,Loader=yaml.FullLoader)
@@ -636,20 +603,6 @@ class HopitalList:
         missing_ch_code_df.to_excel(self.missing_ch_code_out,sheet_name='Sheet1')
 
 
-class OutbreakData:
-    #PLUS BESOIN DE CETTE CLASS
-    def __init__(self):
-        logging.info("In Outbreakdata")
-
-        self.base_dir = "/data/Databases/CovBanQ_Epi/SGIL_EXTRACT"
-        excel_data =  "AllOutbreaks_20201123.xlsx"
-
-        self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
-
-
-    def GetPdDf(self):
-        return self.pd_df
-
 class OutbreakDataV2:
     def __init__(self):
         #DANS LA BD IL FAUT METTRE LES ID QUI SONT DANS SGIL EXTRACT ET LISTE ENVOI ET NON PAS LES ID BELUGA CAR J EN TIENT COMPTE DEJA DANS LE SCRIPT GetFastaForNextstrain_v2.py
@@ -659,8 +612,8 @@ class OutbreakDataV2:
 
         logging.info("In OutbreakDataV2")
         if _debug_:
-            self.base_dir_old_outbreak = "/data/Databases/CovBanQ_Epi/OUTBREAK_OLD_DEBUG/"
-            self.base_dir_new_outbreak = "/data/Databases/CovBanQ_Epi/OUTBREAK_NEW_DEBUG/"
+            self.base_dir_old_outbreak = "/data/Databases/CovBanQ_Epi/DEBUG/OUTBREAK_OLD/"
+            self.base_dir_new_outbreak = "/data/Databases/CovBanQ_Epi/DEBUG/OUTBREAK_NEW/"
         else:
             self.base_dir_old_outbreak = "/data/Databases/CovBanQ_Epi/OUTBREAK_OLD/"
             self.base_dir_new_outbreak = "/data/Databases/CovBanQ_Epi/OUTBREAK_NEW/"
@@ -671,41 +624,32 @@ class OutbreakDataV2:
         for new_outbreak_file in glob.glob(self.base_dir_new_outbreak + "*.list"):
             self.new_outbreak_file_list.append(new_outbreak_file)
 
-
         if _mode_ == 'init':
             self.BuildOldOutbreakDf()
         else:
             self.BuildNewOutbreakDf()
 
     def BuildOldOutbreakDf(self):
-        data_to_add = {'Outbreak':[],'SampleID':[]}
+        self.old_outbreak_df = pd.DataFrame(columns=['COVBANK','BIOBANK','Outbreak'])
 
         for old_outbreak_file in self.old_outbreak_file_list:
             file_name = os.path.basename(old_outbreak_file)
             outbreak_name = re.sub(r'\.list','',file_name)
-            with open(old_outbreak_file) as old_outbreak_file_handle:
-                for line in old_outbreak_file_handle:
-                    sample_id = (str(line).strip('\n'))
-                    data_to_add['Outbreak'].append(outbreak_name)
-                    data_to_add['SampleID'].append(sample_id)
-        
-        self.old_outbreak_df = pd.DataFrame(data_to_add)
-
+            temp_df = pd.read_csv(old_outbreak_file,sep="\t",index_col=False)
+            temp_df['Outbreak'] = outbreak_name
+            self.old_outbreak_df = pd.concat([self.old_outbreak_df,temp_df])
 
     def BuildNewOutbreakDf(self):
-        data_to_add = {'Outbreak':[],'SampleID':[]}
+
+        self.new_outbreak_df = pd.DataFrame(columns=['COVBANK','BIOBANK','Outbreak'])
 
         for new_outbreak_file in self.new_outbreak_file_list:
             file_name = os.path.basename(new_outbreak_file)
             outbreak_name = re.sub(r'\.list','',file_name)
-            with open(new_outbreak_file) as new_outbreak_file_handle:
-                for line in new_outbreak_file_handle:
-                    sample_id = (str(line).strip('\n'))
-                    data_to_add['Outbreak'].append(outbreak_name)
-                    data_to_add['SampleID'].append(sample_id)
-        
-        self.new_outbreak_df = pd.DataFrame(data_to_add)
-
+            temp_df = pd.read_csv(new_outbreak_file,sep="\t",index_col=False)
+            temp_df['Outbreak'] = outbreak_name
+            self.new_outbreak_df = pd.concat([self.new_outbreak_df,temp_df])
+        #print(self.new_outbreak_df)
 
     def GetOldOutbreakDf(self):
         return self.old_outbreak_df
@@ -715,45 +659,30 @@ class OutbreakDataV2:
 
 
 class SGILdata:
-    def __init__(self,outbreak_obj,outbreak_obj_v2):
+    def __init__(self,outbreak_obj_v2):
         logging.info("In SGILdata")
 
-        self.base_dir = "/data/Databases/CovBanQ_Epi/SGIL_EXTRACT/"
-
-        self.outbreak_obj = outbreak_obj
         self.outbreak_obj_v2 = outbreak_obj_v2
 
         if _debug_:
-            table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test.txt"
-            #table_data = "extract_with_Covid19_extraction_v2_20201123_CovidPos_test_outbreak.txt"
+            self.base_dir = "/data/Databases/CovBanQ_Epi/DEBUG/"
+            table_data = sgil_in_file
         else:
-            #table_data = "extract_with_Covid19_extraction_v2_20201203_CovidPos.txt"
+            self.base_dir = "/data/Databases/CovBanQ_Epi/SGIL_EXTRACT/"
             table_data = sgil_in_file
 
         self.pd_df = pd.read_table(os.path.join(self.base_dir,table_data))
         self.Format()
-        #self.MergeOutbreakData()# PAS NECESSAIRE
         if _mode_ == 'outbreak':
             self.ExtractOutbreakSample()
 
-    def MergeOutbreakData(self):
-        #self.pd_df_test = pd.merge(self.pd_df,self.outbreak_obj.GetPdDf(),left_on='NUMERO_SGIL',right_on='ID_SGIL',how='left')
-        #self.pd_df_test.loc[self.pd_df_test['ID_SGIL'].notnull(),['NUMERO_SGIL']] = self.pd_df_test['ID_GENOME_CENTER']
-        #print(self.pd_df_test.loc[self.pd_df_test['ID_SGIL'].notnull(),:])
-
-        #print(self.pd_df.loc[self.pd_df['NUMERO_SGIL'] == 'L00306413',:])
-        self.pd_df = pd.merge(self.pd_df,self.outbreak_obj.GetPdDf(),left_on='NUMERO_SGIL',right_on='ID_SGIL',how='left')
-        self.pd_df.loc[self.pd_df['ID_SGIL'].notnull(),['NUMERO_SGIL']] = self.pd_df['ID_GENOME_CENTER']
-        #print(self.pd_df.loc[self.pd_df['NUMERO_SGIL'] == 'S7033690',:])
-        #print(self.pd_df.loc[self.pd_df['ID_SGIL'].notnull(),:])
-
-
     def ExtractOutbreakSample(self):
         outbreak_df = self.outbreak_obj_v2.GetNewOutbreakDf()
-        merge_df = pd.merge(outbreak_df,self.pd_df,left_on='SampleID',right_on='NUMERO_SGIL',how='inner')
+        merge_df = pd.merge(outbreak_df,self.pd_df,left_on='COVBANK',right_on='NUMERO_SGIL',how='inner')
 
         self.pd_df = merge_df
-        
+        self.pd_df['NUMERO_SGIL'] = self.pd_df['COVBANK']
+        #print(self.pd_df)  
 
     def Format(self):
         self.pd_df['NOM'] = self.pd_df['NOM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
@@ -779,14 +708,12 @@ class SGILdata:
 class TspGeoData:
     def __init__(self):
         logging.info("In TspGeoData")
-
-        self.base_dir = "/data/Databases/CovBanQ_Epi/TSP_GEO"
         
         if _debug_:
-            excel_data = "TSP_geo_20201014_small.xlsx"
-            #excel_data = "TSP_geo_20201111.xlsx"
+            self.base_dir = "/data/Databases/CovBanQ_Epi/DEBUG/"
+            excel_data = tsp_in_file
         else:
-            #excel_data = "TSP_geo_20201206.xlsx"
+            self.base_dir = "/data/Databases/CovBanQ_Epi/TSP_GEO/"
             excel_data = tsp_in_file
         
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
@@ -813,7 +740,6 @@ class TspGeoData:
         self.pd_df['date_nais'] = pd.to_datetime(self.pd_df['date_nais'],format='%Y%m%d',errors='coerce')
         self.pd_df['date_prel'] = pd.to_datetime(self.pd_df['date_prel'],format='%Y%m%d',errors='coerce')
         
-
         self.pd_df['RSS_code'] = self.pd_df['RSS_code'].astype(str)
         self.pd_df['RSS_code'] = self.pd_df['RSS_code'].str.replace(r'(^\d+)\.0',r'\1',regex=True)
         self.pd_df['RSS_code'] = self.pd_df['RSS_code'].str.replace(r'(^\d$)',r'0\1',regex=True)  # – -
@@ -827,15 +753,14 @@ class NoMatchEnvoisGqTspGeo:
     def __init__(self):
         logging.info("In NoMatchEnvoisGqTspGeo")
 
-        self.base_dir_in = "/data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/IN/"
-        self.base_dir_out = "/data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/OUT/"
-
         if _debug_:
-            nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201207_small.xlsx"
-        else: 
-            #nomatch_in = "nomatch_tspGeo_envoisGenomeQc_20201204.xlsx"
+            self.base_dir_in = "/data/Databases/CovBanQ_Epi/DEBUG/"
+            self.base_dir_out = "/data/Databases/CovBanQ_Epi/DEBUG/NOMATCH_ENVOISGQ_TSPGEO_OUT/"
             nomatch_in = mm_in_file
-
+        else: 
+            self.base_dir_in = "/data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/IN/"
+            self.base_dir_out = "/data/Databases/CovBanQ_Epi/NOMATCH_ENVOISGQ_TSPGEO/OUT/"
+            nomatch_in = mm_in_file
 
         self.nb_no_matches = 0
 
@@ -847,16 +772,13 @@ class NoMatchEnvoisGqTspGeo:
         
         self.nomatch_out = os.path.join(self.base_dir_out,"nomatch_tspGeo_envoisGenomeQc_" + database + ".xlsx")
 
-        #self.nomatch_out_df = pd.DataFrame(columns=self.nomatch_in_df.columns)
         self.nomatch_out_df = self.nomatch_in_df.copy()
-        #print(self.nomatch_out_df)
 
     def WriteNewNoMatch(self):
         self.nomatch_out_df.to_excel(self.nomatch_out,sheet_name='Sheet1')
 
     def CheckIfNoMatchAlreadyInNoMatches(self,check_df):
         merge_df = pd.merge(self.nomatch_in_df,check_df,how='inner',on = ['# Requête'])
-        #print(merge_df)
         return(merge_df.shape[0])
 
 class EnvoisGenomeQuebecData:
@@ -865,14 +787,11 @@ class EnvoisGenomeQuebecData:
 
         self.outbreak_obj_v2 = outbreak_obj_v2
 
-        self.base_dir = "/data/Databases/CovBanQ_Epi/LISTE_ENVOIS_GENOME_QUEBEC"
-
         if _debug_:
-            excel_data = "EnvoiSmall.xlsx"
-            #excel_data = "EnvoiSmall_outbreak.xlsx"
-            
+            self.base_dir = "/data/Databases/CovBanQ_Epi/DEBUG/"
+            excel_data = gq_in_file
         else:
-            #excel_data = "ListeEnvoisGenomeQuebec_2020-12-02.xlsx"
+            self.base_dir = "/data/Databases/CovBanQ_Epi/LISTE_ENVOIS_GENOME_QUEBEC/"
             excel_data = gq_in_file
 
         self.pd_df = pd.read_excel(os.path.join(self.base_dir,excel_data),sheet_name=0)
@@ -905,26 +824,25 @@ class EnvoisGenomeQuebecData:
 
         self.pd_df = self.pd_df.dropna(subset = ['Date de prélèvement'])
 
-
     def ExtractOutbreakSample(self):
         outbreak_df = self.outbreak_obj_v2.GetNewOutbreakDf()
-        merge_df = pd.merge(outbreak_df,self.pd_df,left_on='SampleID',right_on='# Requête',how='inner')
+        merge_df = pd.merge(outbreak_df,self.pd_df,left_on='COVBANK',right_on='# Requête',how='inner')
 
         self.pd_df = merge_df
-
+        print(self.pd_df)
+        self.pd_df['# Requête'] = self.pd_df['COVBANK']
 
 def Main():
     logging.info("Begin update")
 
-    tsp_geo_obj = TspGeoData()
-    hopital_list_obj = HopitalList()
-    outbreak_obj = OutbreakData()
-
     outbreak_obj_v2 = OutbreakDataV2()
 
-    sgil_obj = SGILdata(outbreak_obj,outbreak_obj_v2)
+    hopital_list_obj = HopitalList()
+
+    sgil_obj = SGILdata(outbreak_obj_v2)
     envois_genome_qc_obj = EnvoisGenomeQuebecData(outbreak_obj_v2) 
 
+    tsp_geo_obj = TspGeoData()
     nomatch_envoisgq_tspgeo = NoMatchEnvoisGqTspGeo()
 
     cov_bank_db = CovBankDB(tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj,outbreak_obj_v2,nomatch_envoisgq_tspgeo)
@@ -933,6 +851,7 @@ def Main():
     if _mode_ == 'init':
         cov_bank_db.UpdateWithOldOutbreak()
     else:
+        cov_bank_db.UpdateGenomeQuebecRequete()
         cov_bank_db.SetMissingNewOutbreakSamples() 
 
     cov_bank_db.WriteMissingOutBreakSample()
