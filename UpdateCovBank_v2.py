@@ -20,7 +20,10 @@ TODO
 """
 Usage example
 
-python UpdateCovBank_v2.py  --mode init  --gq ListeEnvoisGenomeQuebec_2020-12-14.xlsx --tsp TSP_geo_20201213.xlsx --mm nomatch_tspGeo_envoisGenomeQc_CovBank20201207.xlsx --sgil extract_with_Covid19_extraction_v2_20201221_CovidPos.txt
+python UpdateCovBank_v2_Dev.py  --debug --mode init --gq ListeEnvoisGenomeQuebec_debug.xlsx --tsp TSP_geo_debug.xlsx --mm nomatch_tspGeo_envoisGenomeQc_debug.xlsx --sgil extract_with_Covid19_extraction_v2_CovidPos_debug.txt
+
+python UpdateCovBank_v2_Dev.py  --debug --mode outbreak --gq ListeEnvoisGenomeQuebec_outbreak_debug.xlsx --tsp TSP_geo_outbreak_debug.xlsx --mm nomatch_tspGeo_envoisGenomeQc_outbreak_debug.xlsx --sgil extract_with_Covid19_extraction_v2_CovidPos_debug.txt
+
 
 Ne pas oublier de choisir la bonne db dans /data/Applications/GitScript/Dsp_Covid_MySql/CovBankParam.yaml
 En mode init, ne pas oublier de mettre a jour la liste de fichier eclosion dans /data/Databases/CovBanQ_Epi/OUTBREAK_OLD
@@ -111,11 +114,14 @@ class CovBankDB:
         self.connection = self.SetConnection()
 
         self.patient_col_list = ['PRENOM','NOM','SEXE','DTNAISS','RSS','RTA','NAM']
-        self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT','OUTBREAK','DEB_VOY1','FIN_VOY1','DEST_VOY1','DEB_VOY2','FIN_VOY2','DEST_VOY2','DEB_VOY3','FIN_VOY3','DEST_VOY3','DEB_VOY4','FIN_VOY4','DEST_VOY4','DEB_VOY5','FIN_VOY5','DEST_VOY5','DEB_VOY6','FIN_VOY6','DEST_VOY6','DEB_VOY7','FIN_VOY7','DEST_VOY7','DEB_VOY8','FIN_VOY8','DEST_VOY8','DEB_VOY9','FIN_VOY9','DEST_VOY9','DEB_VOY10','FIN_VOY10','DEST_VOY10','DEB_VOY11','FIN_VOY11','DEST_VOY11','DEB_VOY12','FIN_VOY12','DEST_VOY12','DEB_VOY13','FIN_VOY13','DEST_VOY13']
-        self.prelevement_col_list_sgil = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT','OUTBREAK','NUMERO_SGIL']
+        self.prelevement_col_list = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','DATE_ENVOI_GENOME_QUEBEC','TRAVEL_HISTORY','CT','OUTBREAK','DEB_VOY1','FIN_VOY1','DEST_VOY1','DEB_VOY2','FIN_VOY2','DEST_VOY2','DEB_VOY3','FIN_VOY3','DEST_VOY3','DEB_VOY4','FIN_VOY4','DEST_VOY4','DEB_VOY5','FIN_VOY5','DEST_VOY5','DEB_VOY6','FIN_VOY6','DEST_VOY6','DEB_VOY7','FIN_VOY7','DEST_VOY7','DEB_VOY8','FIN_VOY8','DEST_VOY8','DEB_VOY9','FIN_VOY9','DEST_VOY9','DEB_VOY10','FIN_VOY10','DEST_VOY10','DEB_VOY11','FIN_VOY11','DEST_VOY11','DEB_VOY12','FIN_VOY12','DEST_VOY12','DEB_VOY13','FIN_VOY13','DEST_VOY13','COVBANK_ID','BIOBANK_ID']
+        self.prelevement_col_list_sgil = ['ID_PATIENT','CODE_HOPITAL','NOM_HOPITAL','ADRESSE_HOPITAL','DATE_PRELEV','GENOME_QUEBEC_REQUETE','TRAVEL_HISTORY','CT','OUTBREAK','NUMERO_SGIL','COVBANK_ID','BIOBANK_ID']
 
     def CloseConnection(self):
         self.GetConnection().close()
+
+    def GetDatabaseName(self):
+        return(self.database)
 
     def SetConnection(self):
         return mysql.connector.connect(host=self.host,user=self.user,password=self.password,database=self.database)
@@ -144,7 +150,7 @@ class CovBankDB:
             outbreak = row['Outbreak']
             covbank_id = row['COVBANK']
             biobank_id = row['BIOBANK']
-            sql = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,covbank_id)
+            sql = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}', BIOBANK_ID = '{0}', COVBANK_ID = '{1}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,covbank_id)
             cursor.execute(sql)
             nb_update = cursor.rowcount
             cursor.close()
@@ -156,7 +162,7 @@ class CovBankDB:
             cursor = self.GetCursor()
             outbreak = row['Outbreak']
             sample_id = row['COVBANK']
-            sql = "UPDATE Prelevements SET OUTBREAK = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(outbreak,sample_id)
+            sql = "UPDATE Prelevements SET OUTBREAK = '{0}'  WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(outbreak,sample_id)
             #print(sql)
             cursor.execute(sql)
             nb_update = cursor.rowcount
@@ -165,7 +171,7 @@ class CovBankDB:
                 sample_id_not_found.append(sample_id)
             else:
                 biobank_id = row['BIOBANK']
-                sql2 = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,sample_id)
+                sql2 = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}', BIOBANK_ID = '{0}', COVBANK_ID = '{1}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,sample_id)
                 cursor.execute(sql2)
 
             cursor.close()
@@ -179,6 +185,7 @@ class CovBankDB:
         self.nb_patients_inserted = 0
         self.nb_prelevements_inserted = 0
 
+
         for index, row in self.envois_genome_qc_obj.pd_df.loc[:,].iterrows():
             nom = row['Nom']
             prenom = row['Prénom']
@@ -188,6 +195,24 @@ class CovBankDB:
             nam = row['NAM']
             tsp_geo_match_df = self.GetTspGeoMatch(nom,prenom,date_naiss,nam,date_prelev,req)
 
+            if tsp_geo_match_df.shape[0] == 0:
+                nomatch_df = self.nomatch_envoisgq_tspgeo.GetNoMatchInDf()
+                matchdf_in_nomatchdf = nomatch_df.loc[nomatch_df['# Requête'] == req,['Nom TSP_GEO','Prenom TSP_GEO','Date de naissance TSP_GEO','NAM TSP_GEO']]
+                if matchdf_in_nomatchdf.shape[0] == 1:
+                    try:
+                        nom_tsp_geo = str(matchdf_in_nomatchdf['Nom TSP_GEO'].iloc[0])
+                        prenom_tsp_geo = str(matchdf_in_nomatchdf['Prenom TSP_GEO'].iloc[0])
+                        datenaiss_tsp_geo = matchdf_in_nomatchdf['Date de naissance TSP_GEO'].iloc[0]
+                        nam_tsp_geo = str(matchdf_in_nomatchdf['NAM TSP_GEO'].iloc[0])
+                        #print("TSP GEO ",nom_tsp_geo, " ", prenom_tsp_geo, " ",datenaiss_tsp_geo, " ",nam_tsp_geo)
+                        tsp_geo_match_df = self.GetTspGeoMatch(nom_tsp_geo,prenom_tsp_geo,datenaiss_tsp_geo,nam_tsp_geo,date_prelev,req)
+                    except:
+                        print("PROBLEM SEARCH IN NOMATCH ")
+                        tsp_geo_match_df = pd.DataFrame()
+                else:
+                    pass
+                    #print("NO MATCH FOR ",req)
+
             if tsp_geo_match_df.shape[0] != 0:
                 patient_record = self.GetPatientValToInsert(tsp_geo_match_df)
                 patient_id = self.InsertPatient(patient_record)
@@ -196,6 +221,7 @@ class CovBankDB:
                     self.InsertPrelevement(prelevement_record,False)
                 else:
                     logging.error("Impossible d inserer ce prelevement " + str(row))
+
 
         for index, row in self.sgil_obj.pd_df.loc[:,].iterrows():
             if _mode_ == 'outbreak':
@@ -222,7 +248,8 @@ class CovBankDB:
         else:
             rec = dict(list(zip(self.prelevement_col_list,prelevement_record)))
         
-        sql = "SELECT ID_PRELEV from Prelevements where GENOME_QUEBEC_REQUETE = '{0}'".format(rec['GENOME_QUEBEC_REQUETE'])
+        #sql = "SELECT ID_PRELEV from Prelevements where GENOME_QUEBEC_REQUETE = '{0}'".format(rec['GENOME_QUEBEC_REQUETE'])
+        sql = "SELECT ID_PRELEV from Prelevements where COVBANK_ID = '{0}'".format(rec['GENOME_QUEBEC_REQUETE'])
         cursor.execute(sql)
         id_prelev_tuple_list = cursor.fetchall()
         nb_prelev = len(id_prelev_tuple_list)
@@ -340,7 +367,7 @@ class CovBankDB:
 
         id_sgil = sgil_folderno
 
-        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct,outbreak,id_sgil))))
+        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,sgil_folderno,travel_history,ct,outbreak,id_sgil,id_sgil,id_sgil))))
 
 
     def WriteReqNoChCodeToFile(self):
@@ -433,7 +460,7 @@ class CovBankDB:
         fin_voy13 = str(list(tsp_geo_match_df['fin_voy13'])[0])
         dest_voy13 = str(list(tsp_geo_match_df['dest_voy13'])[0])
 
-        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct,outbreak,deb_voy1,fin_voy1,dest_voy1,deb_voy2,fin_voy2,dest_voy2,deb_voy3,fin_voy3,dest_voy3,deb_voy4,fin_voy4,dest_voy4,deb_voy5,fin_voy5,dest_voy5,deb_voy6,fin_voy6,dest_voy6,deb_voy7,fin_voy7,dest_voy7,deb_voy8,fin_voy8,dest_voy8,deb_voy9,fin_voy9,dest_voy9,deb_voy10,fin_voy10,dest_voy10,deb_voy11,fin_voy11,dest_voy11,deb_voy12,fin_voy12,dest_voy12,deb_voy13,fin_voy13,dest_voy13))))
+        return(tuple(map(GetVal,(patient_id,code_hopital,nom_hopital,adresse_hopital,date_prelev,genome_quebec_requete,date_envois_genome_quebec,travel_history,ct,outbreak,deb_voy1,fin_voy1,dest_voy1,deb_voy2,fin_voy2,dest_voy2,deb_voy3,fin_voy3,dest_voy3,deb_voy4,fin_voy4,dest_voy4,deb_voy5,fin_voy5,dest_voy5,deb_voy6,fin_voy6,dest_voy6,deb_voy7,fin_voy7,dest_voy7,deb_voy8,fin_voy8,dest_voy8,deb_voy9,fin_voy9,dest_voy9,deb_voy10,fin_voy10,dest_voy10,deb_voy11,fin_voy11,dest_voy11,deb_voy12,fin_voy12,dest_voy12,deb_voy13,fin_voy13,dest_voy13,genome_quebec_requete,genome_quebec_requete))))
         
 
     def GetSexLetterFromNumber(self,number):
@@ -685,8 +712,8 @@ class SGILdata:
         #print(self.pd_df)  
 
     def Format(self):
-        self.pd_df['NOM'] = self.pd_df['NOM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
-        self.pd_df['PRENOM'] = self.pd_df['PRENOM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
+        self.pd_df['NOM'] = self.pd_df['NOM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace("É","E").str.replace(",","")
+        self.pd_df['PRENOM'] = self.pd_df['PRENOM'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace("É","E").str.replace(",","")
         self.pd_df['NAM'] = self.pd_df['NAM'].str.strip(' ').str.replace("'","")
         
         self.pd_df['NOM'] = self.pd_df['NOM'].str.strip(' ')
@@ -721,11 +748,11 @@ class TspGeoData:
 
     def Format(self):
         #TODO SI MANQUE DATE NAISS ON PEUT L OBTENIR A PARTIR DU NAM
-        self.pd_df['nom'] = self.pd_df['nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','')
-        self.pd_df['nom'] = self.pd_df['nom'].str.replace('É','E').str.replace('È','E').str.replace(',','')
+        self.pd_df['nom'] = self.pd_df['nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','').str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace("É","E").str.replace(",","")
+        self.pd_df['nom'] = self.pd_df['nom'].str.replace('È','E')
         
-        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','')
-        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('É','E').str.replace('È','E').str.replace(',','')        
+        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','').str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace("É","E").str.replace(",","")
+        self.pd_df['prenom'] = self.pd_df['prenom'].str.replace('È','E')
 
         self.pd_df['nam'] = self.pd_df['nam'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","")
 
@@ -765,14 +792,21 @@ class NoMatchEnvoisGqTspGeo:
         self.nb_no_matches = 0
 
         self.nomatch_in_df = pd.read_excel(os.path.join(self.base_dir_in,nomatch_in),sheet_name=0)
+        self.nomatch_out_df = self.nomatch_in_df.copy()
+
+        self.nomatch_in_df['Date de naissance TSP_GEO'] = pd.to_datetime(self.nomatch_in_df['Date de naissance TSP_GEO'],format='%Y%m%d',errors='coerce')
+        self.nomatch_in_df['Nom TSP_GEO'] = self.nomatch_in_df['Nom TSP_GEO'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','').str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace("É","E").str.replace(",","").str.strip(' ').str.upper()
+        self.nomatch_in_df['Prenom TSP_GEO'] = self.nomatch_in_df['Prenom TSP_GEO'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.replace('-','').str.replace(' ','').str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace("É","E").str.replace(",","").str.strip(' ').str.upper()
         
+        self.nomatch_in_df['NAM TSP_GEO'] = self.nomatch_in_df['NAM TSP_GEO'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace("'","").str.strip(' ').str.upper()
+
+
         yaml_conn_param = open('CovBankParam.yaml')
         param = yaml.load(yaml_conn_param,Loader=yaml.FullLoader)
         database = param['database']
         
         self.nomatch_out = os.path.join(self.base_dir_out,"nomatch_tspGeo_envoisGenomeQc_" + database + ".xlsx")
 
-        self.nomatch_out_df = self.nomatch_in_df.copy()
 
     def WriteNewNoMatch(self):
         self.nomatch_out_df.to_excel(self.nomatch_out,sheet_name='Sheet1')
@@ -780,6 +814,9 @@ class NoMatchEnvoisGqTspGeo:
     def CheckIfNoMatchAlreadyInNoMatches(self,check_df):
         merge_df = pd.merge(self.nomatch_in_df,check_df,how='inner',on = ['# Requête'])
         return(merge_df.shape[0])
+
+    def GetNoMatchInDf(self):
+        return(self.nomatch_in_df)
 
 class EnvoisGenomeQuebecData:
     def __init__(self,outbreak_obj_v2):
@@ -815,8 +852,8 @@ class EnvoisGenomeQuebecData:
         self.pd_df['NAM'] = self.pd_df['NAM'].str.upper()
         self.pd_df['NAM'] = self.pd_df['NAM'].str.replace(r'^0{1,}','')
 
-        self.pd_df['Nom'].str.replace('É','E').str.replace('È','E').str.replace(',','')
-        self.pd_df['Prénom'].str.replace('É','E').str.replace('È','E').str.replace(',','')
+        self.pd_df['Nom'].str.replace('É','E').str.replace('È','E').str.replace(',','').str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace(",","").str.replace("'","")
+        self.pd_df['Prénom'].str.replace('É','E').str.replace('È','E').str.replace(',','').str.replace("*","").str.replace("(","").str.replace(")","").str.replace("&","").str.replace(".","").str.replace(",","").str.replace("'","")
 
         self.pd_df['Date de naissance'] = pd.to_datetime(self.pd_df['Date de naissance'],format='%Y-%m-%d',errors='coerce')
         self.pd_df['Date de prélèvement'] = pd.to_datetime(self.pd_df['Date de prélèvement'],format='%Y-%m-%d',errors='coerce')
@@ -829,7 +866,6 @@ class EnvoisGenomeQuebecData:
         merge_df = pd.merge(outbreak_df,self.pd_df,left_on='COVBANK',right_on='# Requête',how='inner')
 
         self.pd_df = merge_df
-        print(self.pd_df)
         self.pd_df['# Requête'] = self.pd_df['COVBANK']
 
 def Main():
@@ -863,6 +899,12 @@ def Main():
     nomatch_envoisgq_tspgeo.WriteNewNoMatch()
 
     hopital_list_obj.WriteMissingChCodeToFile()
+
+    today = datetime.datetime.now().strftime("%Y-%m-%d@%H:%M:%S")
+
+    with open("/data/Databases/CovBanQ_Epi/SCRIPT_OUT/" + cov_bank_db.GetDatabaseName() + ".log",'w') as log:
+        log.write("Terminé @ " + today + "\n")
+    log.close()
 
 if __name__ == '__main__':
     Main()
