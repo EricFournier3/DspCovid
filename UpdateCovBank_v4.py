@@ -166,7 +166,6 @@ class CovBankDB:
             cursor = self.GetCursor()
             outbreak = row['Outbreak']
             sample_id = row['COVBANK']
-            #sql = "UPDATE Prelevements SET OUTBREAK = '{0}'  WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(outbreak,sample_id)
             sql = "UPDATE Prelevements SET OUTBREAK = '{0}'  WHERE COVBANK_ID  = '{1}'".format(outbreak,sample_id)
             #print(sql)
             cursor.execute(sql)
@@ -175,10 +174,9 @@ class CovBankDB:
             if nb_update < 1:
                 sample_id_not_found.append(sample_id)
             else:
-                pass
-                #biobank_id = row['BIOBANK']
-                #sql2 = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}', BIOBANK_ID = '{0}', COVBANK_ID = '{1}' WHERE GENOME_QUEBEC_REQUETE = '{1}'".format(biobank_id,sample_id)
-                #cursor.execute(sql2)
+                biobank_id = row['BIOBANK']
+                sql2 = "UPDATE Prelevements SET GENOME_QUEBEC_REQUETE  = '{0}', BIOBANK_ID = '{0}', COVBANK_ID = '{1}' WHERE COVBANK_ID = '{1}'".format(biobank_id,sample_id)
+                cursor.execute(sql2)
 
             cursor.close()
             self.Commit()
@@ -259,7 +257,6 @@ class CovBankDB:
        
         #NOTE le GENOME_QUEBEC_REQUETE est en fait le BIOBANK_ID 
         sql = "SELECT ID_PRELEV from Prelevements where GENOME_QUEBEC_REQUETE = '{0}'".format(rec['GENOME_QUEBEC_REQUETE'])
-        #sql = "SELECT ID_PRELEV from Prelevements where COVBANK_ID = '{0}'".format(rec['GENOME_QUEBEC_REQUETE'])
         cursor.execute(sql)
         id_prelev_tuple_list = cursor.fetchall()
         nb_prelev = len(id_prelev_tuple_list)
@@ -292,7 +289,7 @@ class CovBankDB:
     def SetMissingNewOutbreakSamples(self):
         new_outbreak_df = self.outbreak_obj_v2.GetNewOutbreakDf()
         new_outbreak_list = list(new_outbreak_df['BIOBANK'])
-        sql = "SELECT GENOME_QUEBEC_REQUETE from Prelevements where GENOME_QUEBEC_REQUETE in " + " %s" % str(tuple(new_outbreak_list))
+        sql = "SELECT GENOME_QUEBEC_REQUETE from Prelevements where GENOME_QUEBEC_REQUETE in " + " %s" % re.sub(r",\)",r")",str(tuple(new_outbreak_list)))
         outbreak_inserted_df = pd.read_sql(sql,con=self.GetConnection())
         outbreak_inserted_df = outbreak_inserted_df.rename(columns={'GENOME_QUEBEC_REQUETE':'BIOBANK'})
         self.missing_new_outbreak_sample_id_df = new_outbreak_df.loc[~new_outbreak_df['BIOBANK'].isin(list(outbreak_inserted_df['BIOBANK'])),:]
@@ -642,7 +639,6 @@ class HopitalList:
 
 class OutbreakDataV2:
     def __init__(self):
-        #DANS LA BD IL FAUT METTRE LES ID QUI SONT DANS SGIL EXTRACT ET LISTE ENVOI ET NON PAS LES ID BELUGA CAR J EN TIENT COMPTE DEJA DANS LE SCRIPT GetFastaForNextstrain_v2.py
 
         self.old_outbreak_file_list = []
         self.new_outbreak_file_list = []
@@ -675,6 +671,8 @@ class OutbreakDataV2:
             temp_df = pd.read_csv(old_outbreak_file,sep="\t",index_col=False)
             temp_df['Outbreak'] = outbreak_name
             self.old_outbreak_df = pd.concat([self.old_outbreak_df,temp_df])
+
+        #print(self.old_outbreak_df)
 
     def BuildNewOutbreakDf(self):
 
@@ -780,7 +778,7 @@ class TspGeoData:
         self.pd_df['RSS_code'] = self.pd_df['RSS_code'].astype(str)
         self.pd_df['RSS_code'] = self.pd_df['RSS_code'].str.replace(r'(^\d+)\.0',r'\1',regex=True)
         self.pd_df['RSS_code'] = self.pd_df['RSS_code'].str.replace(r'(^\d$)',r'0\1',regex=True)  # – -
-        self.pd_df['RSS'] =  self.pd_df['RSS_code'] + "-" + self.pd_df['RSS_nom']  #TODO ATTENTION ici ca enleve le leading 0
+        self.pd_df['RSS'] =  self.pd_df['RSS_code'] + "-" + self.pd_df['RSS_nom'] 
         self.pd_df['RSS'] = self.pd_df['RSS'].str.replace(r' – ',r'-').str.replace('é','e').str.replace('è','e').str.replace('ô','o').str.replace('î','i')
         self.pd_df['RTA'] = self.pd_df['code_pos'].str.slice(0,3)
 
@@ -925,7 +923,7 @@ class EnvoisGenomeQuebecData:
 
         self.MergeWithBBC19()
          
-        print(self.pd_df)
+        #print(self.pd_df)
 
         if _mode_ == 'outbreak':
             self.ExtractOutbreakSample()
@@ -936,6 +934,7 @@ class EnvoisGenomeQuebecData:
 
 
     def Format(self):
+        self.pd_df['# Requête'] = self.pd_df['# Requête'].astype(str)
         self.pd_df = self.pd_df.loc[~self.pd_df['# Requête'].str.contains('^LSPQ-',regex=True),:]
         self.pd_df['Nom'] = self.pd_df['Nom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace('-','').str.replace(' ','')
         self.pd_df['Prénom'] = self.pd_df['Prénom'].str.replace('é','e').str.replace('è','e').str.replace('ç','c').str.replace('-','').str.replace(' ','')
@@ -963,13 +962,10 @@ class EnvoisGenomeQuebecData:
 
     def ExtractOutbreakSample(self):
         outbreak_df = self.outbreak_obj_v2.GetNewOutbreakDf()
-        #merge_df = pd.merge(outbreak_df,self.pd_df,left_on='COVBANK',right_on='# Requête',how='inner')
-        merge_df = pd.merge(outbreak_df,self.pd_df,left_on='BIOBANK',right_on='GENOME_CENTER_ID',how='inner')
-
+        merge_df = pd.merge(outbreak_df,self.pd_df,left_on='COVBANK',right_on='# Requête',how='inner')
+        merge_df['GENOME_CENTER_ID'] = merge_df['BIOBANK']
         self.pd_df = merge_df
-        
-        #Pas besoin de la ligne ci-dessous 
-        #self.pd_df['# Requête'] = self.pd_df['COVBANK']
+        #print(self.pd_df)        
 
 def Main():
     logging.info("Begin update")
@@ -982,11 +978,8 @@ def Main():
 
     sgil_obj = SGILdata(outbreak_obj_v2)
     envois_genome_qc_obj = EnvoisGenomeQuebecData(outbreak_obj_v2,bbc19_obj) 
-    #exit(1)
     tsp_geo_obj = TspGeoData()
     nomatch_envoisgq_tspgeo = NoMatchEnvoisGqTspGeo()
-
-    #exit(1)
 
     cov_bank_db = CovBankDB(tsp_geo_obj,envois_genome_qc_obj,hopital_list_obj,sgil_obj,outbreak_obj_v2,nomatch_envoisgq_tspgeo)
 
